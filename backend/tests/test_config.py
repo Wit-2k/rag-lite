@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config import DEFAULT_DATA_DIR, Settings, load_settings
+from app.config import Settings, default_data_dir, load_settings
 from app.core.openrouter import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIM,
@@ -139,7 +139,7 @@ def test_explicit_overrides_beat_environment(tmp_path: Path, monkeypatch: pytest
     settings = load_settings(root=tmp_path, env_file=tmp_path / "不存在.env", embed_dim=2048, db_uri=None)
 
     assert settings.embed_dim == 2048
-    assert settings.db_uri == str(DEFAULT_DATA_DIR / "lancedb"), "None 的覆盖项应被忽略"
+    assert settings.db_uri == str(default_data_dir() / "lancedb"), "None 的覆盖项应被忽略"
 
 
 def test_other_settings_readable_from_env(tmp_path: Path) -> None:
@@ -160,6 +160,13 @@ def test_db_uri_override_updates_data_dir(tmp_path: Path) -> None:
     )
 
     assert settings.data_dir == tmp_path / "别的库"
+
+
+def test_data_dir_override_updates_db_uri(tmp_path: Path) -> None:
+    """只给 data_dir 时，库位置要跟着走（别指向默认的 backend/data）。"""
+    settings = load_settings(root=tmp_path, env_file=tmp_path / "不存在.env", data_dir=tmp_path / "便携")
+
+    assert settings.db_uri == str(tmp_path / "便携" / "lancedb")
 
 
 def test_settings_is_frozen() -> None:

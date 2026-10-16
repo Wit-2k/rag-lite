@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,8 +53,19 @@ RERANK_COST_PER_MTOKEN = 0.05
 DEFAULT_CHAT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash"
 
-# backend/.env（该文件已被 .gitignore 忽略，只放本机密钥，不要提交）
-DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+def default_env_file() -> Path:
+    """密钥文件的位置。
+
+    开发时是 `backend/.env`；PyInstaller 打包后代码在 `_internal/` 里，
+    这时用便携根（exe 的上一级）的 `.env`，用户不必钻进 `_internal/` 去放密钥。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent.parent / ".env"
+    return Path(__file__).resolve().parents[2] / ".env"
+
+
+# 只放本机密钥，该文件已被 .gitignore 忽略，不要提交
+DEFAULT_ENV_FILE = default_env_file()
 
 # 上游允许重试的状态码：限流 + 各种临时故障；400 之类的参数错误不该重试
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})

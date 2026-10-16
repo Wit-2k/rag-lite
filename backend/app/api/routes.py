@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -20,12 +21,16 @@ from app.api.models import (
     HealthOut,
     JobAcceptedOut,
     JobOut,
+    SettingsIn,
+    SettingsOut,
     SourceCreateIn,
     SourceOut,
 )
+from app.config import EDITABLE_FIELDS, ENV_NAMES, mask_secret, update_env_file
 from app.core.ingest import ingest, remove_source
+from app.core.openrouter import ALLOWED_DIMS
 from app.core.query import ChatSession, DoneEvent, RetrievalEvent, TokenEvent
-from app.core.store import Store
+from app.core.store import Store, StoreError
 
 router = APIRouter(prefix="/api")
 
@@ -237,3 +242,102 @@ def clear_chat(request: Request) -> ChatClearOut:
         return ChatClearOut(cleared=0, turns=0)
     cleared = session.clear()
     return ChatClearOut(cleared=cleared, turns=session.turns)
+
+
+# ---------------------------------------------------------------- 设置
+
+
+def env_file_for(settings) -> Path:
+    """当前生效的 .env：settings.root 是便携根（开发期即 backend/）。"""
+    return Path(settings.root) / ".env"
+
+
+def settings_payload(settings, store: Store) -> SettingsOut:
+    """把生效配置转成回给前端的形状：密钥打码，附上文件位置与实际库维度。"""
+    return SettingsOut(
+        env_file=str(env_file_for(settings)),
+        data_dir=str(settings.data_dir),
+        db_uri=settings.db_uri,
+        store_dim=store.dim,
+        api_key_set=bool(settings.api_key),
+        api_key_hint=mask_secret(settings.api_key),
+        embed_base_url=settings.embed_base_url,
+        embed_model=settings.embed_model,
+        embed_dim=settings.embed_dim,
+        embed_api_key_set=bool(settings.embed_api_key),
+        embed_api_key_hint=mask_secret(settings.embed_api_key),
+        rerank_base_url=settings.rerank_base_url,
+        rerank_model=settings.rerank_model,
+        rerank_api_key_set=bool(settings.rerank_api_key),
+        rerank_api_key_hint=mask_secret(settings.rerank_api_key),
+        chat_base_url=settings.chat_base_url,
+        chat_model=settings.chat_model,
+        chat_api_key_set=bool(settings.chat_api_key),
+        chat_api_key_hint=mask_secret(settings.chat_api_key),
+        retrieve_top_k=settings.retrieve_top_k,
+        context_n=settings.context_n,
+    )
+
+
+@router.get("/settings", response_model=SettingsOut)
+def get_settings(request: Request) -> SettingsOut:
+    return settings_payload(request.app.state.settings, get_store(request))
+
+
+@router.put("/settings", response_model=SettingsOut, responses={400: {"model": ErrorOut}})
+def put_settings(payload: SettingsIn, request: Request) -> SettingsOut:
+    """改配置：写入 .env **并立即生效**（无需重启）。
+
+    - 字符串字段留空 / 不传 = 不改（密钥可以只填新的那把，不必重敲旧的）；
+    - `embed_dim` 要能对上向量库现有维度，否则拒绝并说明怎么办（换嵌入模型得重建库）；
+    - 改完之后丢掉当前对话会话，让下一次提问用新模型重建。
+    """
+    app = request.app
+    current = app.state.settings
+    store = get_store(request)
+
+    # 空字符串视为「不修改」；None 已被 exclude_none 去掉
+    updates = {
+        name: value
+        for name, value in payload.model_dump(exclude_none=True).items()
+        if not (isinstance(value, str) and not value.strip())
+    }
+    if not updates:
+        return settings_payload(current, store)
+
+    unknown = set(updates) - set(EDITABLE_FIELDS)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"这些项不支持在界面里改：{sorted(unknown)}")
+    if "embed_dim" in updates and int(updates["embed_dim"]) not in ALLOWED_DIMS:
+        raise HTTPException(status_code=400, detail=f"嵌入维度只能是 {list(ALLOWED_DIMS)}")
+    for name in ("retrieve_top_k", "context_n"):
+        if name in updates and int(updates[name]) < 1:
+            raise HTTPException(status_code=400, detail=f"{ENV_NAMES[name]} 必须 ≥ 1")
+    top_k = int(updates.get("retrieve_top_k", current.retrieve_top_k))
+    context_n = int(updates.get("context_n", current.context_n))
+    if context_n > top_k:
+        raise HTTPException(status_code=400, detail=f"送给大模型的片段数（{context_n}）不能大于召回条数（{top_k}）")
+    for name, value in updates.items():
+        if name.endswith("_base_url") and not str(value).startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail=f"{name} 必须是 http:// 或 https:// 开头的地址")
+
+    # 换维度 = 换向量空间：库里有别的维度就直接拒绝，别把 .env 改了却起不来
+    new_store: Store | None = None
+    target_dim = int(updates.get("embed_dim", current.embed_dim))
+    if target_dim != store.dim:
+        try:
+            new_store = Store(current.db_uri, dim=target_dim)
+        except StoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # 先落盘再生效：文件写坏了也只是下次启动不对，当前进程用的仍是已验证的值
+    env_path = env_file_for(current)
+    update_env_file(env_path, {ENV_NAMES[name]: str(value) for name, value in updates.items()})
+
+    new_settings = replace(current, **updates)
+    app.state.settings = new_settings
+    if new_store is not None:
+        app.state.store = new_store
+    app.state.chat = None  # 下次提问按新配置重建会话
+    print(f"[设置] 已更新 {sorted(updates)} → {env_path}", flush=True)
+    return settings_payload(new_settings, app.state.store)

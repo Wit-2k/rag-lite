@@ -86,3 +86,59 @@ class ErrorOut(BaseModel):
     """统一的错误体，方便前端直接显示 detail。"""
 
     detail: str
+
+
+class SettingsOut(BaseModel):
+    """当前生效的配置。密钥只回打码后的提示，永不回传明文。"""
+
+    env_file: str  # 这些值落在哪个文件里
+    data_dir: str
+    db_uri: str
+    store_dim: int  # 向量库实际维度（与 embed_dim 必须一致，否则启动时就报错了）
+
+    api_key_set: bool
+    api_key_hint: str
+
+    embed_base_url: str
+    embed_model: str
+    embed_dim: int
+    embed_api_key_set: bool
+    embed_api_key_hint: str
+
+    rerank_base_url: str
+    rerank_model: str
+    rerank_api_key_set: bool
+    rerank_api_key_hint: str
+
+    chat_base_url: str
+    chat_model: str
+    chat_api_key_set: bool
+    chat_api_key_hint: str
+
+    retrieve_top_k: int
+    context_n: int
+
+
+class SettingsIn(BaseModel):
+    """要改的配置项。**留空 / 不传 = 不改**（密钥因此可以只填新值、不必重敲旧密钥）。
+
+    改 `embed_dim` 必须能对上向量库现有维度，否则会被拒绝（换模型要重建库）。
+    """
+
+    api_key: str | None = None
+
+    embed_base_url: str | None = None
+    embed_model: str | None = None
+    embed_dim: int | None = None
+    embed_api_key: str | None = None
+
+    rerank_base_url: str | None = None
+    rerank_model: str | None = None
+    rerank_api_key: str | None = None
+
+    chat_base_url: str | None = None
+    chat_model: str | None = None
+    chat_api_key: str | None = None
+
+    retrieve_top_k: int | None = None
+    context_n: int | None = None

@@ -390,3 +390,101 @@ def test_sources_are_marked_stale_after_switching_embed_model(tmp_path: Path, st
     assert row["stale"] is True
     assert row["embed_model"] == same.embed_model, "行里记着入库时用的模型"
     assert client.get("/api/health").json()["sources_stale"] == 1
+
+
+# ---------------------------------------------------------------- 设置读写
+
+
+def test_get_settings_masks_secrets(client: TestClient) -> None:
+    """settings 接口绝不能把明文密钥回给前端。"""
+    body = client.get("/api/settings").json()
+
+    assert body["api_key_set"] is True
+    assert body["api_key_hint"] and "fake-key" not in body["api_key_hint"]
+    assert "fake-key" not in json.dumps(body), "响应里不该出现明文密钥"
+    assert body["embed_dim"] == DIM
+    assert body["store_dim"] == DIM
+    assert body["env_file"].endswith(".env")
+    assert body["retrieve_top_k"] == 20 and body["context_n"] == 3
+
+
+def test_put_settings_writes_env_and_applies_live(client: TestClient, settings: Settings) -> None:
+    """改配置要落盘到 .env，并且立刻生效（不用重启）。"""
+    response = client.put(
+        "/api/settings",
+        json={"chat_model": "another/chat-model", "retrieve_top_k": 30, "context_n": 5},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["chat_model"] == "another/chat-model"
+    assert (body["retrieve_top_k"], body["context_n"]) == (30, 5)
+
+    # 落盘
+    env_text = (settings.root / ".env").read_text(encoding="utf-8")
+    assert "CHAT_MODEL=another/chat-model" in env_text
+    assert "RETRIEVE_TOP_K=30" in env_text
+
+    # 立刻生效：health 与内部状态都变了，且会话被丢弃以便按新配置重建
+    assert client.get("/api/health").json()["chat_model"] == "another/chat-model"
+
+
+def test_put_settings_key_only_replaces_that_key(client: TestClient, settings: Settings) -> None:
+    """密钥留空 = 不改；只填新密钥时旧密钥不被清掉，且新值立即生效。"""
+    before = client.get("/api/settings").json()
+
+    client.put("/api/settings", json={"chat_api_key": "new-chat-key-1234567890"})
+    after = client.get("/api/settings").json()
+
+    assert after["api_key_hint"] == before["api_key_hint"], "共享密钥不该被动到"
+    assert after["chat_api_key_set"] is True
+    assert "new-chat-key" not in json.dumps(after)
+
+
+def test_put_settings_ignores_blank_values(client: TestClient) -> None:
+    """空字符串代表「不修改」——界面上密钥框留空就不会误清。"""
+    before = client.get("/api/settings").json()
+
+    body = client.put("/api/settings", json={"chat_model": "", "api_key": ""}).json()
+
+    assert body["chat_model"] == before["chat_model"]
+    assert body["api_key_set"] is True
+
+
+def test_put_settings_rejects_changing_dimension_with_existing_db(client: TestClient, settings: Settings) -> None:
+    """库里已是某维度时改 EMBED_DIM 必须被拒，且不能动 .env。"""
+    response = client.put("/api/settings", json={"embed_dim": 2048 if DIM != 2048 else 512})
+
+    assert response.status_code == 400
+    assert "现有维度" in response.json()["detail"]
+    assert not (settings.root / ".env").exists(), "校验没过就不该写文件"
+
+
+def test_put_settings_rejects_bad_values(client: TestClient) -> None:
+    assert client.put("/api/settings", json={"embed_dim": 999}).status_code == 400
+    assert client.put("/api/settings", json={"retrieve_top_k": 0}).status_code == 400
+    assert client.put("/api/settings", json={"embed_base_url": "ftp://x"}).status_code == 400
+
+
+def test_put_settings_rejects_context_larger_than_top_k(client: TestClient) -> None:
+    response = client.put("/api/settings", json={"retrieve_top_k": 2, "context_n": 5})
+
+    assert response.status_code == 400
+    assert "不能大于" in response.json()["detail"]
+
+
+def test_put_settings_chat_uses_new_model(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """改完回答模型后，下一次提问要用新模型（会话被重建）。"""
+    seen: list[dict] = []
+
+    def fake_stream(**kwargs):
+        seen.append(kwargs)
+        return FakeChat()
+
+    monkeypatch.setattr(query_module, "ChatStream", fake_stream)
+    client.post("/api/chat", json={"question": "旧模型问一句"}).read()  # 先建一次会话
+
+    client.put("/api/settings", json={"chat_model": "brand/new-model"})
+    client.post("/api/chat", json={"question": "新模型问一句"}).read()
+
+    assert seen[-1]["model"] == "brand/new-model"

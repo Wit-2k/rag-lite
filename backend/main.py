@@ -19,6 +19,7 @@ from pathlib import Path
 import uvicorn
 
 from app.api.server import create_app
+from app.core.openrouter import default_env_file
 from app.core.store import StoreError
 from app.config import load_settings
 
@@ -67,10 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{HANDSHAKE_PREFIX} {json.dumps({'host': host, 'port': port})}", flush=True)
 
     print(f"数据目录：{settings.data_dir}；向量库：{settings.db_uri}", flush=True)
-    print(
-        f"已配置密钥：{'是' if settings.configured else '否（导入/问答会报错，请在 backend/.env 填 OPENROUTER_API_KEY）'}",
-        flush=True,
-    )
+    key_hint = "是" if settings.configured else f"否（导入/问答会报错，请在 {default_env_file()} 里填 OPENROUTER_API_KEY，缺 {settings.missing_keys}）"
+    print(f"已配置密钥：{key_hint}", flush=True)
     try:
         app = create_app(settings=settings, on_startup=announce)
     except StoreError as exc:

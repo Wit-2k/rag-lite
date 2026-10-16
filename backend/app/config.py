@@ -9,7 +9,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace, fields
+import sys
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 from app.core.openrouter import (
@@ -25,8 +26,24 @@ from app.core.openrouter import (
 )
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = BACKEND_DIR / "data"
 DEFAULT_DB_NAME = "lancedb"
+
+
+def backend_root() -> Path:
+    """配置与数据的「根」。
+
+    开发时是 `backend/`；PyInstaller 打包后代码在 `_internal/` 里，
+    这时应当是**便携根**（exe 的上一级），这样 `.env` 和 `data/` 都在用户一眼能看到的地方，
+    整包拷走数据也跟着走。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent.parent
+    return BACKEND_DIR
+
+
+def default_data_dir() -> Path:
+    return backend_root() / "data"
+
 
 # 字段 → 环境变量名。想加配置项就在这里加一行，`.env` 和环境变量都会自动生效。
 ENV_NAMES: dict[str, str] = {
@@ -50,14 +67,23 @@ ENV_NAMES: dict[str, str] = {
 
 INT_FIELDS = {"embed_dim", "retrieve_top_k", "context_n", "port"}
 
+# 密钥类字段：回给前端时一律打码，永不回传明文
+SECRET_FIELDS = {"api_key", "embed_api_key", "rerank_api_key", "chat_api_key"}
+
+# 允许前端改的字段（顺序即界面上的顺序）。root/data_dir/db_uri/host/port 不在其中：
+# 它们决定「库在哪」，改它们等于换一个库，属于命令行/文件的活。
+EDITABLE_FIELDS = tuple(
+    name for name in ENV_NAMES if name not in {"host", "port", "db_uri"}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
     """运行期需要的一切参数。字段都有默认值，`load_settings()` 负责按优先级覆盖。"""
 
-    root: Path = BACKEND_DIR
-    data_dir: Path = DEFAULT_DATA_DIR
-    db_uri: str = str(DEFAULT_DATA_DIR / DEFAULT_DB_NAME)
+    root: Path = field(default_factory=backend_root)
+    data_dir: Path = field(default_factory=default_data_dir)
+    db_uri: str = ""
 
     # —— 嵌入（dim 写进库 schema，改了要重建库）——
     embed_base_url: str = DEFAULT_EMBED_BASE_URL
@@ -85,6 +111,11 @@ class Settings:
     # —— 服务 ——
     host: str = "127.0.0.1"
     port: int = 17650
+
+    def __post_init__(self) -> None:
+        # db_uri 留空就跟着 data_dir 走，这样只改 data_dir 也能生效（frozen 所以用 object.__setattr__）
+        if not self.db_uri:
+            object.__setattr__(self, "db_uri", str(Path(self.data_dir) / DEFAULT_DB_NAME))
 
     # 每个角色实际用哪把钥匙：单独配了就用单独的，否则用共享的
     @property
@@ -120,7 +151,7 @@ def load_settings(
     **overrides: object,
 ) -> Settings:
     """读配置。`overrides` 里值为 None 的项会被忽略（方便直接把 argparse 结果丢进来）。"""
-    base = Settings(root=root or BACKEND_DIR)
+    base = Settings(root=root or backend_root())
     env_file = env_file if env_file is not None else base.root / ".env"
     kwargs: dict[str, object] = {}
 
@@ -136,11 +167,77 @@ def load_settings(
     explicit = {key: value for key, value in overrides.items() if value is not None}
     if explicit:
         settings = replace(settings, **explicit)  # type: ignore[arg-type]
+    # data_dir 与 db_uri 只要给了一个，另一个就跟着走（replace 会把旧值一起带过来，所以两个方向都要处理）
+    if "data_dir" in explicit and "db_uri" not in explicit:
+        settings = replace(settings, db_uri=str(Path(settings.data_dir) / DEFAULT_DB_NAME))
+    elif "db_uri" in explicit and "data_dir" not in explicit:
+        settings = replace(settings, data_dir=Path(settings.db_uri).parent)
     if not settings.api_key:  # 兜底：环境变量和 .env 都没读到就再试一次标准读取
         try:
             settings = replace(settings, api_key=read_api_key(env_file=env_file))
         except Exception:
             pass
-    if settings.data_dir == DEFAULT_DATA_DIR and settings.db_uri != str(DEFAULT_DATA_DIR / DEFAULT_DB_NAME):
-        settings = replace(settings, data_dir=Path(settings.db_uri).parent)
     return settings
+
+
+# —— 读写 .env（前端改配置就落到这个文件）————————————————————————————
+
+
+def env_file_path(root: Path | None = None) -> Path:
+    """当前生效的 .env 路径：开发期 backend/.env，便携版 <便携根>/.env。"""
+    return (root or backend_root()) / ".env"
+
+
+def mask_secret(value: str) -> str:
+    """打码：只露头尾，用于回显「配了哪把钥匙」，绝不回传明文。"""
+    if not value:
+        return ""
+    return f"{value[:6]}…{value[-4:]}" if len(value) > 12 else "已配置"
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """把 .env 读成 {环境变量名: 值}（忽略注释行）。"""
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def update_env_file(path: Path, updates: dict[str, str]) -> None:
+    """把若干「环境变量名 → 值」写进 .env，尽量保留原有注释与未涉及的项。
+
+    - 该键已有生效行 → 就地替换；
+    - 该键只有被注释掉的行（比如 .env.example 抄来的）→ 取消注释并写入；
+    - 完全没有 → 追加到文件末尾。
+    """
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    remaining = dict(updates)
+    result: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        target = None
+        for key in list(remaining):
+            if stripped == f"{key}={remaining[key]}" or stripped.split("=", 1)[0].strip() == key:
+                target = key
+            elif stripped.startswith("#") and stripped.lstrip("# ").split("=", 1)[0].strip() == key:
+                target = key  # 被注释掉的模板行
+        if target is not None:
+            result.append(f"{target}={remaining.pop(target)}")
+        else:
+            result.append(line)
+
+    if remaining:
+        if result and result[-1].strip():
+            result.append("")
+        result.append("# 由 rag-lite 界面写入")
+        result.extend(f"{key}={value}" for key, value in remaining.items())
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(result).rstrip("\n") + "\n", encoding="utf-8")

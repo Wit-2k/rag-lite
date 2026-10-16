@@ -48,6 +48,9 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
   忘了这一步不会静默出错——`Store` 启动时会比对现有维度并提示：现在几维、配置几维、该删库还是该改回配置。
 
 其它可调项：`RETRIEVE_TOP_K`（默认 20）、`CONTEXT_N`（默认 3）、`RAGLITE_HOST` / `RAGLITE_PORT`、`RAGLITE_DB_URI`。
+
+注意：`root` / `data_dir` / `db_uri` / `host` / `port` **不能**从界面改（它们决定库在哪），其余都能改。
+界面改的值会写进 `.env`，所以手工编辑 `.env` 与界面改配置是同一份数据，不冲突。
 起服务后 `GET /api/health` 会回传三个角色**当前实际在用**的接入点与模型，改完配置可直接核对。
 
 ## HTTP 接口
@@ -61,6 +64,8 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | GET | `/api/jobs/{id}` | 导入进度：`state/total/done/message/result` |
 | POST | `/api/chat` | 提问，返回 SSE：`sources` → `token`… → `done`（或 `error`） |
 | POST | `/api/chat/clear` | 清空对话上下文 |
+| GET | `/api/settings` | 当前生效配置（密钥只回打码提示，附 `.env` 路径与库维度） |
+| PUT | `/api/settings` | 改配置：写入 `.env` **并立即生效**；留空的字段不动；维度对不上库或参数非法返回 400 |
 
 对话历史默认每轮全带（由后端会话持有，前端不用上传）；`clear` 之后历史清空。
 `/docs` 有 FastAPI 自动生成的接口页面，调试很方便。
@@ -104,4 +109,11 @@ uv run python tests/chat_report.py       # 真实多轮对话（约 $0.002）
 
 ## 打包
 
-`zip/` 下留有打包脚本占位（PyInstaller 打后端 + `dotnet publish` 打前端 + 压缩成便携包），尚未实现。
+```powershell
+powershell -File zip\package.ps1        # 后端 PyInstaller + 前端 dotnet publish + 组装 + 压缩
+```
+
+产物在 `release/rag-lite-<版本>.zip`（同级的 `release/rag-lite-<版本>/` 解包目录可直接运行）。
+便携版里 `.env` 与 `data/` 都在**便携根**（与 `RagLite.exe` 同级）——代码被打进 `_internal/` 后，
+后端靠 `sys.frozen` 反推路径，密钥不用塞进 `_internal/`。
+注意 `-SkipBackend` 只在后端源码没改过时使用，否则会把旧后端打进包。
