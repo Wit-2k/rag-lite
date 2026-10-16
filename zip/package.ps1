@@ -58,7 +58,7 @@ Copy-Item (Join-Path $publishDir "*") $appDir -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $appDir "backend") | Out-Null
 Copy-Item (Join-Path $backendDist "*") (Join-Path $appDir "backend") -Recurse -Force
 Copy-Item (Join-Path $root "backend\.env.example") $appDir -Force
-Copy-Item (Join-Path $root "zip\使用说明.txt") $appDir -Force
+Copy-Item (Join-Path $root "zip\使用说明.md") $appDir -Force
 New-Item -ItemType Directory -Path (Join-Path $appDir "data") | Out-Null
 
 $files = (Get-ChildItem $appDir -Recurse -File)

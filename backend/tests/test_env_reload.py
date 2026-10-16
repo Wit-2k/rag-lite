@@ -2,7 +2,7 @@
 
 场景（用户报的）：便携包/源码第一次跑时还没有 `.env`，添加目录报「还没有配置 OPENROUTER_API_KEY」；
 随后手工把 `.env` 建好，再添加目录仍然报同一句——因为后端只在启动时读了一次 `.env`。
-包内 `使用说明.txt` 里承诺过「手工改那个文件也一样管用」，所以这是 bug。
+包内 `使用说明.md` 里承诺过「手工改那个文件也一样管用」，所以这是 bug。
 
     cd backend && uv run pytest -q tests/test_env_reload.py
 """
