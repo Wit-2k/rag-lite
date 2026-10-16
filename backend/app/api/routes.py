@@ -36,8 +36,13 @@ def get_store(request: Request) -> Store:
     return request.app.state.store
 
 
-def source_rows(store: Store) -> list[SourceOut]:
-    """把库里的数据源登记转成前端要的形状；顺手判断产物目录是否还在。"""
+def is_stale(row: dict, settings) -> bool:
+    """入库时用的嵌入模型/维度与当前配置不一致 → 这行向量不可信，要重新导入。"""
+    return row.get("embed_model") != settings.embed_model or int(row.get("embed_dim") or 0) != settings.embed_dim
+
+
+def source_rows(store: Store, settings) -> list[SourceOut]:
+    """把库里的数据源登记转成前端要的形状；顺手判断产物目录是否还在、向量是否过期。"""
     rows = []
     for row in sorted(store.list_sources(), key=lambda item: item.get("name", "")):
         path = Path(row["path"])
@@ -51,6 +56,9 @@ def source_rows(store: Store) -> list[SourceOut]:
                 added_at=row["added_at"],
                 embedded_at=row["embedded_at"],
                 missing=not (path / "full.md").is_file(),
+                embed_model=row.get("embed_model", ""),
+                embed_dim=int(row.get("embed_dim") or 0),
+                stale=is_stale(row, settings),
             )
         )
     return rows
@@ -61,20 +69,28 @@ def health(request: Request) -> HealthOut:
     settings = request.app.state.settings
     store = get_store(request)
     chunks, sources = store.stats()
+    stale = sum(1 for row in store.list_sources() if is_stale(row, settings))
     return HealthOut(
         chunks=chunks,
         sources=sources,
+        sources_stale=stale,
         configured=settings.configured,
+        missing_keys=settings.missing_keys,
+        # 三个角色当前实际在用的接入点与模型——换配置后一眼就能确认有没有生效
         embed_dim=store.dim,
         embed_model=settings.embed_model,
+        embed_base_url=settings.embed_base_url,
+        rerank_model=settings.rerank_model,
+        rerank_base_url=settings.rerank_base_url,
         chat_model=settings.chat_model,
+        chat_base_url=settings.chat_base_url,
         data_dir=str(settings.data_dir),
     )
 
 
 @router.get("/sources", response_model=list[SourceOut])
 def list_sources(request: Request) -> list[SourceOut]:
-    return source_rows(get_store(request))
+    return source_rows(get_store(request), request.app.state.settings)
 
 
 @router.post("/sources", response_model=JobAcceptedOut, status_code=202, responses={400: {"model": ErrorOut}, 409: {"model": ErrorOut}})
@@ -93,21 +109,23 @@ def add_source(payload: SourceCreateIn, request: Request) -> JobAcceptedOut:
         result = ingest(
             path,
             store,
-            api_key=settings.api_key,
+            api_key=settings.embed_key,
             model=settings.embed_model,
             dim=settings.embed_dim,
+            base_url=settings.embed_base_url,
             on_progress=request.app.state.jobs.progress(job),
         )
         # 跳过时不经过任何进度回调，这里把进度补成「完成」，免得前端停在 0/1
         job.total = job.total or 1
         job.done = job.total
-        job.message = "已跳过（full.md 未变化）" if result.skipped else "完成"
+        job.message = f"已跳过（{result.reason}）" if result.skipped else "完成"
         return {
             "source_id": result.source_id,
             "name": payload.name or result.name,
             "chunk_count": result.chunk_count,
             "image_count": result.image_count,
             "skipped": result.skipped,
+            "reason": result.reason,
             "cost_usd": result.usage.cost_usd,
             "seconds": round(result.seconds, 1),
             "warnings": result.warnings[:20],
@@ -145,12 +163,16 @@ def get_chat_session(request: Request) -> ChatSession:
         settings = request.app.state.settings
         session = ChatSession(
             get_store(request),
-            api_key=settings.api_key,
+            api_key=settings.embed_key,  # 兜底：三个角色都没单独配时用共享密钥
             chat_model=settings.chat_model,
             chat_base_url=settings.chat_base_url,
-            chat_api_key=settings.effective_chat_key,
+            chat_api_key=settings.chat_key,
             embed_model=settings.embed_model,
+            embed_base_url=settings.embed_base_url,
+            embed_api_key=settings.embed_key,
             rerank_model=settings.rerank_model,
+            rerank_base_url=settings.rerank_base_url,
+            rerank_api_key=settings.rerank_key,
             retrieve_top_k=settings.retrieve_top_k,
             context_n=settings.context_n,
         )

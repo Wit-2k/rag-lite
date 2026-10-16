@@ -26,12 +26,36 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 
 端口被占用会自动顺延；`--port 0` 表示自动挑；`--data-dir` 可换数据目录。
 
+## 配置
+
+配置优先级：**命令行参数 > 环境变量 > `backend/.env` > 代码默认值**。完整模板见 `.env.example`。
+
+三个模型角色各自的**接入点 + 模型 ID + 密钥**都能单独配，密钥留空时回落到共享的 `OPENROUTER_API_KEY`：
+
+| 角色 | 接入点 | 模型 | 密钥 | 维度 |
+| --- | --- | --- | --- | --- |
+| 嵌入 | `EMBED_BASE_URL` | `EMBED_MODEL` | `EMBED_API_KEY` | `EMBED_DIM`（256/512/1024/2048） |
+| 重排 | `RERANK_BASE_URL` | `RERANK_MODEL` | `RERANK_API_KEY` | – |
+| 回答 | `CHAT_BASE_URL` | `CHAT_MODEL` | `CHAT_API_KEY` | – |
+
+嵌入只填 `base_url`，程序自己接 `/embeddings`；重排同理接 `/rerank`；回答直接走 chat completions。
+
+**换嵌入模型时注意**：维度写进了向量库的 schema。
+
+- 只换模型、维度不变 → 重新导入即可，`ingest` 发现「入库时的模型」与当前配置不同就会自动重新向量化；
+  `/api/sources` 会把旧模型入库的数据源标成 `stale=true`，`/api/health` 汇总成 `sources_stale`。
+- 维度也变了 → 必须重建库：换 `RAGLITE_DB_URI` 指向新目录，或删掉 `data/lancedb` 重新导入。
+  忘了这一步不会静默出错——`Store` 启动时会比对现有维度并提示：现在几维、配置几维、该删库还是该改回配置。
+
+其它可调项：`RETRIEVE_TOP_K`（默认 20）、`CONTEXT_N`（默认 3）、`RAGLITE_HOST` / `RAGLITE_PORT`、`RAGLITE_DB_URI`。
+起服务后 `GET /api/health` 会回传三个角色**当前实际在用**的接入点与模型，改完配置可直接核对。
+
 ## HTTP 接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/health` | 就绪探测：块数、数据源数、密钥是否配好、维度、当前模型 |
-| GET | `/api/sources` | 数据源列表（`missing=true` 表示产物目录已经不在了） |
+| GET | `/api/health` | 就绪探测：块数、数据源数、密钥是否配好、三个角色的接入点/模型/维度、`sources_stale` |
+| GET | `/api/sources` | 数据源列表（`missing` = 产物目录不在了；`stale` = 需要重新导入） |
 | POST | `/api/sources` | 登记一个产物目录并开始导入，立刻返回 `202 {job_id}` |
 | DELETE | `/api/sources/{id}?purge=true` | 移除数据源（默认连分块一起删） |
 | GET | `/api/jobs/{id}` | 导入进度：`state/total/done/message/result` |

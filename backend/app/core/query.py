@@ -20,7 +20,9 @@ from typing import Iterator
 from app.core.openrouter import (
     DEFAULT_CHAT_BASE_URL,
     DEFAULT_CHAT_MODEL,
+    DEFAULT_EMBED_BASE_URL,
     DEFAULT_MODEL,
+    DEFAULT_RERANK_BASE_URL,
     DEFAULT_RERANK_MODEL,
     ChatStream,
     ChatUsage,
@@ -147,7 +149,11 @@ class ChatSession:
         chat_base_url: str = DEFAULT_CHAT_BASE_URL,
         chat_api_key: str | None = None,
         embed_model: str = DEFAULT_MODEL,
+        embed_base_url: str = DEFAULT_EMBED_BASE_URL,
+        embed_api_key: str | None = None,
         rerank_model: str = DEFAULT_RERANK_MODEL,
+        rerank_base_url: str = DEFAULT_RERANK_BASE_URL,
+        rerank_api_key: str | None = None,
         retrieve_top_k: int = 20,
         context_n: int = 3,
         rerank_doc_chars: int | None = None,
@@ -157,8 +163,13 @@ class ChatSession:
         self.chat = chat or ChatStream(
             api_key=chat_api_key or api_key, model=chat_model, base_url=chat_base_url
         )
+        # 三个角色的密钥各自可覆盖，没给就沿用 api_key（= 共享的 OpenRouter 密钥）
+        self.embed_api_key = embed_api_key or api_key
+        self.rerank_api_key = rerank_api_key or api_key
         self.embed_model = embed_model
+        self.embed_base_url = embed_base_url
         self.rerank_model = rerank_model
+        self.rerank_base_url = rerank_base_url
         self.retrieve_top_k = retrieve_top_k
         self.context_n = context_n
         self.rerank_doc_chars = rerank_doc_chars
@@ -183,9 +194,10 @@ class ChatSession:
         """检索并重排，返回最终要交给大模型的前 N 条片段。"""
         embedded = embed_texts(
             [question],
-            api_key=self.api_key,
+            api_key=self.embed_api_key,
             model=self.embed_model,
             dim=self.store.dim,
+            base_url=self.embed_base_url,
             input_type="search_query",  # 查询侧要和入库侧的 search_document 区分开
         )
         hits = self.store.search(embedded.vectors[0], top_k=self.retrieve_top_k)
@@ -194,7 +206,12 @@ class ChatSession:
 
         extra = {} if self.rerank_doc_chars is None else {"truncate_chars": self.rerank_doc_chars}
         ranking = rerank(
-            question, [hit["text"] for hit in hits], api_key=self.api_key, model=self.rerank_model, **extra
+            question,
+            [hit["text"] for hit in hits],
+            api_key=self.rerank_api_key,
+            model=self.rerank_model,
+            base_url=self.rerank_base_url,
+            **extra,
         )
         names = {row["source_id"]: row["name"] for row in self.store.list_sources()}
         scores = dict(zip(ranking.order, ranking.scores))

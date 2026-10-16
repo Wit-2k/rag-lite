@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Callable
 
 from app.core.chunking import chunk_markdown
-from app.core.openrouter import DEFAULT_DIM, DEFAULT_MODEL, EmbedUsage, embed_blocks
+from app.core.openrouter import (
+    DEFAULT_DIM,
+    DEFAULT_EMBED_BASE_URL,
+    DEFAULT_MODEL,
+    EmbedUsage,
+    embed_blocks,
+)
 from app.core.schema import chunk_row, source_id_for, utc_now
 from app.core.store import Store
 
@@ -31,13 +37,14 @@ class IngestResult:
     image_count: int
     skipped: bool
     sha256: str
+    reason: str = ""  # 这次为什么导入/跳过（换模型、内容变了……）
     warnings: list[str] = field(default_factory=list)
     usage: EmbedUsage = field(default_factory=EmbedUsage)
     seconds: float = 0.0
 
     def summary(self) -> str:
         if self.skipped:
-            return f"{self.name}: full.md 未变化，跳过导入（库里仍有 {self.chunk_count} 块）"
+            return f"{self.name}: {self.reason or '未变化'}，跳过导入（库里仍有 {self.chunk_count} 块）"
         return (
             f"{self.name}: 写入 {self.chunk_count} 块（含图 {self.image_count} 块），"
             f"{self.usage.requests} 次调用，${self.usage.cost_usd:.6f}，{self.seconds:.1f}s"
@@ -51,6 +58,7 @@ def ingest(
     api_key: str,
     model: str = DEFAULT_MODEL,
     dim: int = DEFAULT_DIM,
+    base_url: str = DEFAULT_EMBED_BASE_URL,
     batch: int = 16,
     force: bool = False,
     on_progress: ProgressFn | None = None,
@@ -80,8 +88,11 @@ def ingest(
     chunked = chunk_markdown(full_md)
 
     existing = store.get_source(source_id)
-    if existing and existing.get("sha256") == chunked.sha256 and not force:
-        # 内容没变：不重新嵌入、不重写库。库里已有的块数一并报出来，方便核对。
+    # 「没变」= 内容哈希没变 **且** 嵌入模型与维度也没变。
+    # 只比哈希的话，换了嵌入模型后会继续用旧模型的向量，检索结果就不可信了。
+    same_content = bool(existing) and existing.get("sha256") == chunked.sha256
+    same_embedder = bool(existing) and existing.get("embed_model") == model and int(existing.get("embed_dim") or 0) == dim
+    if same_content and same_embedder and not force:
         return IngestResult(
             source_id=source_id,
             name=source_dir.name,
@@ -90,15 +101,23 @@ def ingest(
             image_count=existing.get("image_count") or 0,
             skipped=True,
             sha256=chunked.sha256,
+            reason="内容与嵌入模型均未变化",
             warnings=chunked.warnings,
             seconds=time.perf_counter() - started,
         )
+    if same_content and not same_embedder:
+        reason = f"嵌入模型/维度已变为 {model} / {dim} 维，重新向量化"
+    elif force:
+        reason = "强制重新导入"
+    else:
+        reason = "full.md 内容已变化"
 
     result = embed_blocks(
         chunked.blocks,
         api_key=api_key,
         model=model,
         dim=dim,
+        base_url=base_url,
         batch=batch,
         on_progress=lambda done, total: report(done, total, "向量化"),
     )
@@ -151,6 +170,7 @@ def ingest(
         image_count=sum(1 for block in chunked.blocks if block.images),
         skipped=False,
         sha256=chunked.sha256,
+        reason=reason,
         warnings=chunked.warnings,
         usage=result.usage,
         seconds=time.perf_counter() - started,

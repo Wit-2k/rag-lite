@@ -19,6 +19,7 @@ from pathlib import Path
 import uvicorn
 
 from app.api.server import create_app
+from app.core.store import StoreError
 from app.config import load_settings
 
 HANDSHAKE_PREFIX = "RAGLITE_READY"
@@ -70,7 +71,12 @@ def main(argv: list[str] | None = None) -> int:
         f"已配置密钥：{'是' if settings.configured else '否（导入/问答会报错，请在 backend/.env 填 OPENROUTER_API_KEY）'}",
         flush=True,
     )
-    app = create_app(settings=settings, on_startup=announce)
+    try:
+        app = create_app(settings=settings, on_startup=announce)
+    except StoreError as exc:
+        # 配置类问题（比如换了维度没重建库）直接给一句人能看懂的提示，别甩 traceback
+        print(f"启动失败：{exc}", file=sys.stderr)
+        return 2
     uvicorn.run(app, host=host, port=port, log_level=args.log_level)
     return 0
 

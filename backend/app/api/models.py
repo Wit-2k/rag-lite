@@ -11,10 +11,16 @@ class HealthOut(BaseModel):
     status: str = "ok"
     chunks: int
     sources: int
+    sources_stale: int  # 用别的嵌入模型/维度入库、需要重新导入的数据源数量
     configured: bool
+    missing_keys: list[str] = []  # 哪些角色还没配到密钥
     embed_dim: int
     embed_model: str
+    embed_base_url: str
+    rerank_model: str
+    rerank_base_url: str
     chat_model: str
+    chat_base_url: str
     data_dir: str
 
 
@@ -29,6 +35,9 @@ class SourceOut(BaseModel):
     added_at: str
     embedded_at: str
     missing: bool = False
+    embed_model: str = ""
+    embed_dim: int = 0
+    stale: bool = False  # 入库时用的嵌入模型/维度与当前配置不一致 → 建议重新导入
 
 
 class SourceCreateIn(BaseModel):

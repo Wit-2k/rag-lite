@@ -419,3 +419,33 @@ def test_live_embed_single_text() -> None:
     assert len(result.vectors[0]) == DEFAULT_DIM
     assert result.usage.prompt_tokens > 0
     assert result.usage.cost_usd >= 0
+
+
+# ---------------------------------------------------------------- 可配置接入点
+
+
+def test_embed_uses_configured_base_url() -> None:
+    session = FakeSession([FakeResponse(200, embedding_response(1))])
+
+    embed_texts(["x"], api_key="k", base_url="https://embed.example.com/v1", session=session, sleep=no_sleep)
+
+    assert session.calls[0]["url"] == "https://embed.example.com/v1/embeddings"
+
+
+def test_rerank_uses_configured_base_url_and_tolerates_trailing_slash() -> None:
+    session = FakeSession([FakeResponse(200, rerank_response([0.5]))])
+
+    rerank("问题", ["甲"], api_key="k", base_url="https://rank.example.com/v1/", session=session, sleep=no_sleep)
+
+    assert session.calls[0]["url"] == "https://rank.example.com/v1/rerank"
+
+
+def test_image_block_also_uses_configured_base_url(tmp_path: Path) -> None:
+    image = tmp_path / "a.jpg"
+    image.write_bytes(b"\xff\xd8\xff\xe0jpeg")
+    blocks = [make_block("带图", images=(image,))]
+    session = FakeSession([FakeResponse(200, embedding_response(1))])
+
+    embed_blocks(blocks, api_key="k", base_url="https://embed.example.com/v1", session=session, sleep=no_sleep)
+
+    assert session.calls[0]["url"] == "https://embed.example.com/v1/embeddings"

@@ -30,8 +30,13 @@ from app.core.chunking import Block
 
 # —— 常量：接口地址、模型、维度、密钥文件位置 ————————————————————————————
 
-EMBED_URL = "https://openrouter.ai/api/v1/embeddings"
-RERANK_URL = "https://openrouter.ai/api/v1/rerank"
+# 三个模型各自的「接入点 + 模型 ID + 密钥」都可以换（见 app/config.py）：
+# 这里只给默认值，具体值由调用方传进来，函数本身不读配置。
+DEFAULT_EMBED_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_RERANK_BASE_URL = "https://openrouter.ai/api/v1"
+EMBED_PATH = "/embeddings"
+RERANK_PATH = "/rerank"
+
 DEFAULT_MODEL = "voyageai/voyage-multimodal-3.5"
 DEFAULT_DIM = 2048  # 该模型支持 256 / 512 / 1024 / 2048
 ALLOWED_DIMS = (256, 512, 1024, 2048)
@@ -55,7 +60,12 @@ RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})
 
 
 class OpenRouterError(RuntimeError):
-    """调用 OpenRouter 失败（参数错、配额、上游故障等），消息里会带响应片段。"""
+    """调用模型接口失败（参数错、配额、上游故障等），消息里会带响应片段。"""
+
+
+def endpoint_url(base_url: str, path: str) -> str:
+    """把 base_url 和路径拼起来，容忍结尾多写的斜杠。"""
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
 
 # —— 结果类型：向量 + 这次调用的花销 ————————————————————————————————————
@@ -332,6 +342,7 @@ def embed_texts(
     api_key: str,
     model: str = DEFAULT_MODEL,
     dim: int = DEFAULT_DIM,
+    base_url: str = DEFAULT_EMBED_BASE_URL,
     batch: int = 16,
     max_chars_per_request: int = 32000,
     input_type: str | None = "search_document",
@@ -349,7 +360,7 @@ def embed_texts(
 
     client = _Client(
         api_key=api_key,
-        url=EMBED_URL,
+        url=endpoint_url(base_url, EMBED_PATH),
         timeout_s=timeout_s,
         max_retries=max_retries,
         session=session,
@@ -378,6 +389,7 @@ def embed_blocks(
     api_key: str,
     model: str = DEFAULT_MODEL,
     dim: int = DEFAULT_DIM,
+    base_url: str = DEFAULT_EMBED_BASE_URL,
     batch: int = 16,
     max_chars_per_request: int = 32000,
     input_type: str | None = "search_document",
@@ -404,6 +416,7 @@ def embed_blocks(
             api_key=api_key,
             model=model,
             dim=dim,
+            base_url=base_url,
             batch=batch,
             max_chars_per_request=max_chars_per_request,
             input_type=input_type,
@@ -423,7 +436,7 @@ def embed_blocks(
     if rich:
         client = _Client(
             api_key=api_key,
-            url=EMBED_URL,
+            url=endpoint_url(base_url, EMBED_PATH),
             timeout_s=timeout_s,
             max_retries=max_retries,
             session=session,
@@ -466,6 +479,7 @@ def rerank(
     *,
     api_key: str,
     model: str = DEFAULT_RERANK_MODEL,
+    base_url: str = DEFAULT_RERANK_BASE_URL,
     top_n: int | None = None,
     truncate_chars: int = DEFAULT_RERANK_DOC_CHARS,
     timeout_s: float = 120.0,
@@ -485,7 +499,7 @@ def rerank(
 
     client = _Client(
         api_key=api_key,
-        url=RERANK_URL,
+        url=endpoint_url(base_url, RERANK_PATH),
         timeout_s=timeout_s,
         max_retries=max_retries,
         session=session,

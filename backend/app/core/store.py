@@ -40,7 +40,18 @@ SEARCH_COLUMNS = [
 
 
 class StoreError(RuntimeError):
-    """存储层出错（schema 不匹配、目录不可用等）。"""
+    """存储层出错（schema/维度不匹配、目录不可用等）。"""
+
+
+def _existing_dim(db: "lancedb.DBConnection") -> int | None:
+    """已存在的 chunks 表当前用了几维；表不存在返回 None。
+
+    用 `list_tables()` 而不是 `table_names()`——后者在当前 lancedb 版本已标记弃用。
+    """
+    if CHUNKS_TABLE not in db.list_tables().tables:
+        return None
+    vector_field = db.open_table(CHUNKS_TABLE).schema.field("vector")
+    return int(vector_field.type.list_size)
 
 
 class Store:
@@ -51,7 +62,18 @@ class Store:
         Path(self.db_uri).mkdir(parents=True, exist_ok=True)
         self.dim = dim
         self.db = lancedb.connect(self.db_uri)
-        # exist_ok=True：表已存在就复用；此时 LanceDB 会拿 schema 校验，维度不一致会直接抛错
+
+        # 换了嵌入模型（维度跟着变）时，老库的 schema 对不上：直接给出「怎么处理」的提示，
+        # 而不是让 LanceDB 抛一句难懂的 schema 错误，更不能悄悄把两种维度的向量混进一张表。
+        existing = _existing_dim(self.db)
+        if existing is not None and existing != dim:
+            raise StoreError(
+                f"向量库现有维度是 {existing}，但当前配置的 EMBED_DIM={dim}。"
+                f"换了嵌入模型就得重建库：把目录 {self.db_uri} 删掉（或改指向新目录）后重新导入；"
+                f"若只是配错了，把 EMBED_DIM 改回 {existing} 即可。"
+            )
+
+        # exist_ok=True：表已存在就复用；此时 LanceDB 也会拿 schema 校验一遍
         self.chunks: Table = self.db.create_table(CHUNKS_TABLE, schema=chunks_schema(dim), exist_ok=True)
         self.sources: Table = self.db.create_table(SOURCES_TABLE, schema=sources_schema(), exist_ok=True)
 

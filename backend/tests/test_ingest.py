@@ -216,3 +216,40 @@ def test_two_sources_live_side_by_side(tmp_path: Path, fake_embedder: list[dict]
     assert first.source_id != second.source_id
     assert store.stats() == (first.chunk_count + second.chunk_count, 2)
     assert len(store.search([1.0] + [0.0] * (DIM - 1), top_k=99)) == first.chunk_count + second.chunk_count
+
+
+# ---------------------------------------------------------------- 换嵌入模型
+
+
+def test_switching_embed_model_forces_reembed(tmp_path: Path, fake_embedder: list[dict]) -> None:
+    """换了嵌入模型（或维度）后，同一个源必须重新向量化，否则库里会混着旧模型的向量。"""
+    source = make_source(tmp_path)
+    store = make_store(tmp_path)
+    first = ingest(source, store, api_key="fake", dim=DIM, model="model-A")
+
+    same = ingest(source, store, api_key="fake", dim=DIM, model="model-A")
+    assert same.skipped and "均未变化" in same.reason
+
+    switched = ingest(source, store, api_key="fake", dim=DIM, model="model-B")
+
+    assert not switched.skipped
+    assert "嵌入模型" in switched.reason
+    assert len(fake_embedder) == 2, "换模型要真的再调一次接口"
+    assert store.get_source(first.source_id)["embed_model"] == "model-B"
+    assert store.count_chunks(first.source_id) == switched.chunk_count, "替换式重导，不产生重复块"
+
+
+def test_embed_base_url_is_passed_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """配置里换的接入点要真的传到调用层。"""
+    seen: list[str] = []
+
+    def fake_embed_blocks(blocks, *, base_url, **kwargs) -> EmbedResult:
+        seen.append(base_url)
+        return EmbedResult(vectors=[[1.0] + [0.0] * (DIM - 1) for _ in blocks], usage=EmbedUsage(), dim=DIM)
+
+    monkeypatch.setattr(ingest_module, "embed_blocks", fake_embed_blocks)
+    store = make_store(tmp_path)
+
+    ingest(make_source(tmp_path), store, api_key="fake", dim=DIM, base_url="https://embed.example.com/v1")
+
+    assert seen == ["https://embed.example.com/v1"]

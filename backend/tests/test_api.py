@@ -65,8 +65,8 @@ def store(settings: Settings) -> Store:
             "sha256": "abc",
             "chunk_count": len(CHUNKS),
             "image_count": 1,
-            "embed_model": "fake",
-            "embed_dim": DIM,
+            "embed_model": settings.embed_model,  # 与 Settings 保持一致，否则会被判成「需重新导入」
+            "embed_dim": settings.embed_dim,
             "added_at": utc_now(),
             "embedded_at": utc_now(),
         }
@@ -146,8 +146,13 @@ def test_health_reports_store_and_config(client: TestClient) -> None:
     assert body["chunks"] == len(CHUNKS)
     assert body["sources"] == 1
     assert body["configured"] is True
+    assert body["missing_keys"] == []
     assert body["embed_dim"] == DIM
     assert body["chat_model"]
+    # 三个角色的接入点与模型都要能从 health 看到，方便确认配置生效
+    assert body["embed_base_url"] and body["rerank_base_url"] and body["chat_base_url"]
+    assert body["rerank_model"]
+    assert body["sources_stale"] == 0
 
 
 def test_health_without_key(tmp_path: Path, store: Store) -> None:
@@ -331,3 +336,57 @@ def test_free_port_skips_busy_ports() -> None:
 
         assert free_port("127.0.0.1", port) != port
         assert free_port("127.0.0.1", port) > port
+
+
+# ---------------------------------------------------------------- 可配置项的可见性
+
+
+def test_health_shows_configured_endpoints(tmp_path: Path, store: Store) -> None:
+    """换了接入点/模型后，health 一眼能看出当前在用什么。"""
+    settings = Settings(
+        root=tmp_path,
+        data_dir=tmp_path,
+        db_uri=store.db_uri,
+        api_key="k",
+        embed_dim=DIM,
+        embed_model="my/embed",
+        embed_base_url="https://embed.example.com/v1",
+        rerank_model="my/rerank",
+        rerank_base_url="https://rank.example.com/v1",
+        chat_model="my/chat",
+        chat_base_url="https://chat.example.com/v1",
+    )
+    client = TestClient(create_app(settings=settings, store=store))
+
+    body = client.get("/api/health").json()
+
+    assert body["embed_model"] == "my/embed"
+    assert body["embed_base_url"] == "https://embed.example.com/v1"
+    assert body["rerank_model"] == "my/rerank"
+    assert body["rerank_base_url"] == "https://rank.example.com/v1"
+    assert body["chat_model"] == "my/chat"
+    assert body["chat_base_url"] == "https://chat.example.com/v1"
+
+
+def test_missing_role_key_is_reported(tmp_path: Path, store: Store) -> None:
+    settings = Settings(root=tmp_path, data_dir=tmp_path, db_uri=store.db_uri, api_key="", embed_dim=DIM)
+    client = TestClient(create_app(settings=settings, store=store))
+
+    body = client.get("/api/health").json()
+
+    assert body["configured"] is False
+    assert body["missing_keys"] == ["嵌入", "重排", "回答"]
+
+
+def test_sources_are_marked_stale_after_switching_embed_model(tmp_path: Path, store: Store) -> None:
+    """库里是用旧嵌入模型入库的，换模型后这些源要标为「需重新导入」。"""
+    same = Settings(root=tmp_path, data_dir=tmp_path, db_uri=store.db_uri, api_key="k", embed_dim=DIM)
+    assert TestClient(create_app(settings=same, store=store)).get("/api/sources").json()[0]["stale"] is False
+
+    switched = replace(same, embed_model="another/embed-model")
+    client = TestClient(create_app(settings=switched, store=store))
+
+    row = client.get("/api/sources").json()[0]
+    assert row["stale"] is True
+    assert row["embed_model"] == same.embed_model, "行里记着入库时用的模型"
+    assert client.get("/api/health").json()["sources_stale"] == 1

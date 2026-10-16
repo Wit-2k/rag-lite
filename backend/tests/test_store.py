@@ -183,11 +183,19 @@ def test_drop_source_chunks_only_touches_that_source(tmp_path: Path) -> None:
 
 
 def test_reopening_with_other_dimension_is_rejected(tmp_path: Path) -> None:
-    """换个嵌入维度重开同一目录必须报错，绝不能让两种维度的向量混在一张表里。"""
+    """换个嵌入维度重开同一目录必须报错，绝不能让两种维度的向量混在一张表里。
+
+    报错信息要能直接告诉人怎么办：现在几维、配置要求几维、是重建库还是改回配置。
+    """
     make_store(tmp_path, dim=8)
-    with pytest.raises(Exception) as error:
+
+    with pytest.raises(StoreError) as error:
         make_store(tmp_path, dim=4)
-    assert "schema" in str(error.value).lower() or "dimension" in str(error.value).lower()
+
+    message = str(error.value)
+    assert "现有维度是 8" in message
+    assert "EMBED_DIM=4" in message
+    assert "删掉" in message and "重新导入" in message
 
 
 def test_wrong_dimension_row_is_rejected(tmp_path: Path) -> None:
