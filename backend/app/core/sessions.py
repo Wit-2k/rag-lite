@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL,
     -- 列表排序用的单调序号：updated_at 是秒精度（跟向量库那份数据统一），
     -- 同一秒里建两个会话、或者建完立刻提问，时间戳会打平 → 靠 seq 才能稳定排出「最近在用」
-    seq        INTEGER NOT NULL DEFAULT 0
+    seq        INTEGER NOT NULL DEFAULT 0,
+    -- 检索范围：绑定的数据源分组；NULL = 全部数据源（老会话就是它，行为不变）
+    group_id   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -77,6 +79,9 @@ class SessionStore:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
             if "seq" not in columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
+            if "group_id" not in columns:
+                # 分组功能之前建的库没有这一列；补上后老会话 = 全部数据源（与旧行为一致）
+                conn.execute("ALTER TABLE sessions ADD COLUMN group_id TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -96,7 +101,7 @@ class SessionStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT s.session_id, s.title, s.created_at, s.updated_at,
+                SELECT s.session_id, s.title, s.created_at, s.updated_at, s.group_id,
                        COUNT(m.message_id) AS message_count
                 FROM sessions s
                 LEFT JOIN messages m ON m.session_id = s.session_id
@@ -111,16 +116,28 @@ class SessionStore:
             row = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
         return dict(row) if row else None
 
-    def create(self, title: str = DEFAULT_TITLE) -> dict:
+    def create(self, title: str = DEFAULT_TITLE, group_id: str | None = None) -> dict:
         session_id, now = new_session_id(), utc_now()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO sessions (session_id, title, created_at, updated_at, seq) "
-                f"VALUES (?, ?, ?, ?, {_NEXT_SEQ})",
-                (session_id, title.strip() or DEFAULT_TITLE, now, now),
+                "INSERT INTO sessions (session_id, title, created_at, updated_at, seq, group_id) "
+                f"VALUES (?, ?, ?, ?, {_NEXT_SEQ}, ?)",
+                (session_id, title.strip() or DEFAULT_TITLE, now, now, group_id),
             )
         return {"session_id": session_id, "title": title.strip() or DEFAULT_TITLE, "created_at": now,
-                "updated_at": now, "message_count": 0}
+                "updated_at": now, "message_count": 0, "group_id": group_id}
+
+    def set_group(self, session_id: str, group_id: str | None) -> bool:
+        """改这个会话的检索范围（None = 全部数据源）。
+
+        刻意不动 `updated_at` / `seq`：换个检索范围不算「用了它」，
+        不该把会话顶到列表最前面（列表顺序只该跟着真的问答走）。
+        """
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE sessions SET group_id = ? WHERE session_id = ?", (group_id, session_id)
+            )
+        return cursor.rowcount > 0
 
     def rename(self, session_id: str, title: str) -> bool:
         with self._connect() as conn:

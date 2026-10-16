@@ -18,8 +18,12 @@ from app.api.models import (
     ChatClearIn,
     ChatClearOut,
     ChatIn,
+    GroupCreateIn,
+    GroupOut,
+    GroupRenameIn,
     MessageOut,
     SessionCreateIn,
+    SessionGroupIn,
     SessionOut,
     SessionRenameIn,
     ErrorOut,
@@ -29,9 +33,11 @@ from app.api.models import (
     SettingsIn,
     SettingsOut,
     SourceCreateIn,
+    SourceGroupsIn,
     SourceOut,
 )
 from app.config import EDITABLE_FIELDS, ENV_NAMES, mask_secret, update_env_file
+from app.core.groups import GroupStore
 from app.core.ingest import ingest, remove_source
 from app.core.openrouter import ALLOWED_DIMS
 from app.core.query import ChatSession, DoneEvent, RetrievalEvent, TokenEvent
@@ -52,15 +58,25 @@ def get_sessions(request: Request) -> SessionStore:
     return request.app.state.sessions
 
 
+def get_groups(request: Request) -> GroupStore:
+    return request.app.state.groups
+
+
 def is_stale(row: dict, settings) -> bool:
     """入库时用的嵌入模型/维度与当前配置不一致 → 这行向量不可信，要重新导入。"""
     return row.get("embed_model") != settings.embed_model or int(row.get("embed_dim") or 0) != settings.embed_dim
 
 
-def source_rows(store: Store, settings) -> list[SourceOut]:
-    """把库里的数据源登记转成前端要的形状；顺手判断产物目录是否还在、向量是否过期。"""
+def source_rows(store: Store, settings, groups: GroupStore) -> list[SourceOut]:
+    """把库里的数据源登记转成前端要的形状；顺手判断产物目录是否还在、向量是否过期。
+
+    分组关系存在 SQLite 里（分组是使用状态，不进向量库），所以这里做一次拼接：
+    一次查完所有源的分组，避免每个源一次查询。
+    """
+    listed = sorted(store.list_sources(), key=lambda item: item.get("name", ""))
+    membership = groups.groups_of_sources([row["source_id"] for row in listed])
     rows = []
-    for row in sorted(store.list_sources(), key=lambda item: item.get("name", "")):
+    for row in listed:
         path = Path(row["path"])
         rows.append(
             SourceOut(
@@ -75,6 +91,7 @@ def source_rows(store: Store, settings) -> list[SourceOut]:
                 embed_model=row.get("embed_model", ""),
                 embed_dim=int(row.get("embed_dim") or 0),
                 stale=is_stale(row, settings),
+                group_ids=membership.get(row["source_id"], []),
             )
         )
     return rows
@@ -107,7 +124,7 @@ def health(request: Request) -> HealthOut:
 
 @router.get("/sources", response_model=list[SourceOut])
 def list_sources(request: Request) -> list[SourceOut]:
-    return source_rows(get_store(request), request.app.state.settings)
+    return source_rows(get_store(request), request.app.state.settings, get_groups(request))
 
 
 @router.post("/sources", response_model=JobAcceptedOut, status_code=202, responses={400: {"model": ErrorOut}, 409: {"model": ErrorOut}})
@@ -169,6 +186,8 @@ def delete_source(source_id: str, request: Request, purge: bool = True) -> None:
     if store.get_source(source_id) is None:
         raise HTTPException(status_code=404, detail=f"没有这个数据源：{source_id}")
     remove_source(source_id, store)
+    # 顺手清掉它的分组关系，免得分组里留着一条指向已删数据源的成员记录
+    get_groups(request).forget_source(source_id)
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut, responses={404: {"model": ErrorOut}})
@@ -187,6 +206,7 @@ def build_chat_session(request: Request, session_id: str) -> ChatSession:
     两个会话也不会互相串历史。
     """
     settings = request.app.state.settings
+    sessions = get_sessions(request)
     return ChatSession(
         get_store(request),
         api_key=settings.embed_key,  # 兜底：三个角色都没单独配时用共享密钥
@@ -201,8 +221,25 @@ def build_chat_session(request: Request, session_id: str) -> ChatSession:
         rerank_api_key=settings.rerank_key,
         retrieve_top_k=settings.retrieve_top_k,
         context_n=settings.context_n,
-        history=get_sessions(request).history(session_id),
+        history=sessions.history(session_id),
+        source_ids=retrieval_scope(request, session_id),
     )
+
+
+def retrieval_scope(request: Request, session_id: str) -> list[str] | None:
+    """这个会话该在哪些数据源里检索。
+
+    - 没绑分组（老会话、或选了「全部数据源」）→ None：不限制
+    - 绑了分组 → 只搜那一组里的数据源；分组里为空就是空列表（一条都不搜，不会退回全库）
+    - 分组已经不存在（比如手工改过库）→ 退回 None，与不带分组的老行为一致
+    """
+    group_id = (get_sessions(request).get(session_id) or {}).get("group_id")
+    if not group_id:
+        return None
+    groups = get_groups(request)
+    if groups.get(group_id) is None:
+        return None
+    return groups.sources_of(group_id)
 
 
 # ---------------------------------------------------------------- 会话
@@ -214,10 +251,12 @@ def list_sessions(request: Request) -> list[SessionOut]:
     return [SessionOut(**row) for row in get_sessions(request).list()]
 
 
-@router.post("/sessions", response_model=SessionOut, status_code=201)
+@router.post("/sessions", response_model=SessionOut, status_code=201, responses={404: {"model": ErrorOut}})
 def create_session(payload: SessionCreateIn, request: Request) -> SessionOut:
     """新建会话（标题留空则用默认名，发出第一个问题后会自动命名）。"""
-    row = get_sessions(request).create(payload.title or DEFAULT_TITLE)
+    if payload.group_id and get_groups(request).get(payload.group_id) is None:
+        raise HTTPException(status_code=404, detail=f"没有这个分组：{payload.group_id}")
+    row = get_sessions(request).create(payload.title or DEFAULT_TITLE, group_id=payload.group_id)
     return SessionOut(**row)
 
 
@@ -246,6 +285,93 @@ def session_messages(session_id: str, request: Request) -> list[MessageOut]:
     if sessions.get(session_id) is None:
         raise HTTPException(status_code=404, detail=f"没有这个会话：{session_id}")
     return [MessageOut(**row) for row in sessions.messages(session_id)]
+
+
+@router.put("/sessions/{session_id}/group", response_model=SessionOut, responses={404: {"model": ErrorOut}})
+def set_session_group(session_id: str, payload: SessionGroupIn, request: Request) -> SessionOut:
+    """设置某个会话的检索范围：绑一个数据源分组，或传 null 表示「全部数据源」。
+
+    只影响之后的问题（已经答过的内容不动），也不会把会话顶到列表最前面。
+    """
+    groups = get_groups(request)
+    if payload.group_id is not None and groups.get(payload.group_id) is None:
+        raise HTTPException(status_code=404, detail=f"没有这个分组：{payload.group_id}")
+    sessions = get_sessions(request)
+    if not sessions.set_group(session_id, payload.group_id):
+        raise HTTPException(status_code=404, detail=f"没有这个会话：{session_id}")
+    row = sessions.get(session_id) or {}
+    row.setdefault("message_count", len(sessions.messages(session_id)))
+    return SessionOut(**row)
+
+
+# ---------------------------------------------------------------- 数据源分组
+
+
+@router.get("/groups", response_model=list[GroupOut])
+def list_groups(request: Request) -> list[GroupOut]:
+    """所有分组（带成员数），按名字排。界面上的分组下拉与分组管理都用它。"""
+    return [GroupOut(**row) for row in get_groups(request).list()]
+
+
+@router.post("/groups", response_model=GroupOut, status_code=201, responses={409: {"model": ErrorOut}})
+def create_group(payload: GroupCreateIn, request: Request) -> GroupOut:
+    """新建分组。名字空/超过 40 字由请求模型挡下（422），重名与保留名返回 409。"""
+    result = get_groups(request).create(payload.name)
+    if not result.ok:
+        raise HTTPException(status_code=409, detail=group_error_detail(result))
+    return GroupOut(**result.group)
+
+
+@router.put("/groups/{group_id}", response_model=GroupOut, responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
+def rename_group(group_id: str, payload: GroupRenameIn, request: Request) -> GroupOut:
+    """给分组改名（规则同新建）。"""
+    result = get_groups(request).rename(group_id, payload.name)
+    if not result.ok:
+        if result.reason == "missing":
+            raise HTTPException(status_code=404, detail=f"没有这个分组：{group_id}")
+        raise HTTPException(status_code=409, detail=group_error_detail(result))
+    return GroupOut(**result.group)
+
+
+@router.delete("/groups/{group_id}", status_code=204, responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
+def delete_group(group_id: str, request: Request) -> None:
+    """删分组。组里的数据源本身不受影响（只是回到「未分组」）。
+
+    还有会话拿它当检索范围就**拒绝删除**：否则那些会话的范围会在用户不知情时变大。
+    接口把在用的会话标题一起回去，前端可以直接告诉用户去改哪几个。
+    """
+    result = get_groups(request).delete(group_id)
+    if result.ok:
+        return
+    if result.reason == "missing":
+        raise HTTPException(status_code=404, detail=f"没有这个分组：{group_id}")
+    names = "、".join(f"《{row['title']}》" for row in result.blocking)
+    raise HTTPException(
+        status_code=409,
+        detail=f"还有 {len(result.blocking)} 个会话在用这个分组：{names}。"
+               f"先把这些会话的检索范围改成别的分组（或「全部数据源」），再来删。",
+    )
+
+
+@router.put("/sources/{source_id}/groups", response_model=SourceOut, responses={404: {"model": ErrorOut}})
+def set_source_groups(source_id: str, payload: SourceGroupsIn, request: Request) -> SourceOut:
+    """设置一个数据源属于哪些分组（整体替换；空列表 = 移出所有分组）。"""
+    store = get_store(request)
+    if store.get_source(source_id) is None:
+        raise HTTPException(status_code=404, detail=f"没有这个数据源：{source_id}")
+    groups = get_groups(request)
+    result = groups.set_source_groups(source_id, payload.group_ids)
+    if not result.ok:
+        raise HTTPException(status_code=404, detail=f"没有这些分组：{'、'.join(result.unknown)}")
+    rows = source_rows(store, request.app.state.settings, groups)
+    return next(row for row in rows if row.source_id == source_id)
+
+
+def group_error_detail(result) -> str:
+    """把分组写操作的失败原因翻成人话（前端直接把 detail 显示给用户）。"""
+    if result.reason == "duplicate":
+        return "已经有同名的分组了，换个名字吧"
+    return "分组名不能用：不能为空、不超过 40 个字，也不能叫「全部数据源」或「未分组」"
 
 
 @router.post("/chat")

@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 from app.core.openrouter import (
     DEFAULT_CHAT_BASE_URL,
@@ -159,6 +159,7 @@ class ChatSession:
         context_n: int = 3,
         rerank_doc_chars: int | None = None,
         history: list[dict] | None = None,
+        source_ids: Iterable[str] | None = None,
     ) -> None:
         self.store = store
         self.api_key = api_key
@@ -177,6 +178,8 @@ class ChatSession:
         self.rerank_doc_chars = rerank_doc_chars
         # 历史由调用方传入（HTTP 层从 SQLite 按会话读）；不传就是空会话
         self.history: list[dict] = list(history or [])
+        # 检索范围：None = 不限制（全部数据源）；给了列表就只在这个范围里搜（空列表 = 一条都不搜）
+        self.source_ids: list[str] | None = None if source_ids is None else list(source_ids)
 
     # —— 上下文管理 ————————————————————————————————————————————
 
@@ -195,6 +198,10 @@ class ChatSession:
 
     def retrieve(self, question: str) -> list[Source]:
         """检索并重排，返回最终要交给大模型的前 N 条片段。"""
+        if self.source_ids is not None and not self.source_ids:
+            # 明确给了「空范围」（比如会话绑的分组里还没放数据源）：
+            # 这时必须一条都不搜，绝不能退回全库——Store 那边的空列表等于「不限制」。
+            return []
         embedded = embed_texts(
             [question],
             api_key=self.embed_api_key,
@@ -203,7 +210,9 @@ class ChatSession:
             base_url=self.embed_base_url,
             input_type="search_query",  # 查询侧要和入库侧的 search_document 区分开
         )
-        hits = self.store.search(embedded.vectors[0], top_k=self.retrieve_top_k)
+        hits = self.store.search(
+            embedded.vectors[0], top_k=self.retrieve_top_k, source_ids=self.source_ids
+        )
         if not hits:
             return []
 

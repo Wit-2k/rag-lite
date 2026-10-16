@@ -33,12 +33,14 @@ class SessionOut(BaseModel):
     created_at: str
     updated_at: str
     message_count: int = 0
+    group_id: str | None = None  # 检索范围：绑定的数据源分组；None = 全部数据源
 
 
 class SessionCreateIn(BaseModel):
     """新建会话；标题留空则用默认名（发出第一个问题后会自动命名）。"""
 
     title: str | None = Field(default=None, max_length=200)
+    group_id: str | None = None  # 顺手绑定检索范围（None = 全部数据源）
 
 
 class SessionRenameIn(BaseModel):
@@ -71,6 +73,7 @@ class SourceOut(BaseModel):
     embed_model: str = ""
     embed_dim: int = 0
     stale: bool = False  # 入库时用的嵌入模型/维度与当前配置不一致 → 建议重新导入
+    group_ids: list[str] = []  # 它所在的分组（可以同时在多个分组里）
 
 
 class SourceCreateIn(BaseModel):
@@ -78,6 +81,39 @@ class SourceCreateIn(BaseModel):
 
     path: str = Field(min_length=1, description="MinerU 产物目录（里面要有 full.md）")
     name: str | None = Field(default=None, description="显示名，留空则用目录名")
+
+
+class GroupOut(BaseModel):
+    """一个数据源分组。`source_count` 用于界面上显示「N 个数据源」。"""
+
+    group_id: str
+    name: str
+    created_at: str
+    source_count: int = 0
+
+
+class GroupCreateIn(BaseModel):
+    """新建分组；名字不许空、不许与别的分组重名。"""
+
+    name: str = Field(min_length=1, max_length=40)
+
+
+class GroupRenameIn(BaseModel):
+    """给分组改名（规则同新建）。"""
+
+    name: str = Field(min_length=1, max_length=40)
+
+
+class SourceGroupsIn(BaseModel):
+    """把一个数据源的分组整体替换成这些（可以给多个分组；空列表 = 移出所有分组）。"""
+
+    group_ids: list[str] = []
+
+
+class SessionGroupIn(BaseModel):
+    """设置某个会话的检索范围；`group_id=null` 表示「全部数据源」。"""
+
+    group_id: str | None = None
 
 
 class JobAcceptedOut(BaseModel):

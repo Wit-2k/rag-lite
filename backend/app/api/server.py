@@ -16,6 +16,7 @@ from app.api.jobs import JobRegistry
 from app.api.reload import env_stamp, maybe_reload_settings
 from app.api.routes import router
 from app.config import Settings
+from app.core.groups import GroupStore
 from app.core.sessions import SessionStore
 from app.core.store import Store
 
@@ -45,6 +46,9 @@ def create_app(
     app.state.store = store or Store(settings.db_uri, dim=settings.embed_dim)
     app.state.jobs = JobRegistry(limit=settings.max_parallel_imports)
     app.state.sessions = SessionStore(Path(settings.data_dir) / "sessions.db")
+    # 分组与会话共用一个库文件：会话的检索范围就记在会话行上，删分组前「有没有会话在用」
+    # 需要在一个事务里问清楚，同一个连接最省事（文件名保持 sessions.db 不变，改名会丢老会话）
+    app.state.groups = GroupStore(Path(settings.data_dir) / "sessions.db")
     app.state.env_stamp = env_stamp(settings.root)  # 记住已加载的 .env 版本，变了就热重载
 
     @app.middleware("http")
