@@ -27,6 +27,8 @@ NAME = "raglite-backend"
 COLLECT_ALL = ["chonkie", "chonkie_core", "lancedb", "lance_namespace", "pyarrow"]
 # 只在运行时按名字动态导入的子模块
 COLLECT_SUBMODULES = ["uvicorn"]
+# 运行时用不到的模块：各包自带的测试（含样例数据），排掉能少带几 MB
+EXCLUDE_MODULES = ["pyarrow.tests", "lance_namespace.tests"]
 
 
 def main() -> int:
@@ -56,12 +58,21 @@ def main() -> int:
         command += ["--collect-all", package]
     for module in COLLECT_SUBMODULES:
         command += ["--collect-submodules", module]
+    for module in EXCLUDE_MODULES:
+        command += ["--exclude-module", module]
     command.append(str(BACKEND_DIR / "main.py"))
 
     print("执行：", " ".join(command), flush=True)
     result = subprocess.run(command, cwd=BACKEND_DIR)
     if result.returncode != 0:
         return result.returncode
+
+    # --exclude-module 对 --collect-all 收进来的文件不一定生效，顺手清掉漏网的测试目录，
+    # 免得体积随依赖升级悄悄长回去
+    for leftover in (DIST_DIR / NAME / "_internal").rglob("tests"):
+        if leftover.is_dir() and leftover.parent.name in {"pyarrow", "lance_namespace", "numpy"}:
+            shutil.rmtree(leftover, ignore_errors=True)
+            print(f"清掉漏网的测试目录：{leftover.relative_to(DIST_DIR)}")
 
     exe = DIST_DIR / NAME / f"{NAME}.exe"
     size = sum(item.stat().st_size for item in (DIST_DIR / NAME).rglob("*") if item.is_file())
