@@ -25,6 +25,38 @@ class HealthOut(BaseModel):
     env_file: str  # 该改哪个 .env：便携版是便携根、源码运行是 backend/——别让用户猜
 
 
+class SessionOut(BaseModel):
+    """一个会话（列表项）。`message_count` 用于列表里显示「N 条消息」。"""
+
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int = 0
+
+
+class SessionCreateIn(BaseModel):
+    """新建会话；标题留空则用默认名（发出第一个问题后会自动命名）。"""
+
+    title: str | None = Field(default=None, max_length=200)
+
+
+class SessionRenameIn(BaseModel):
+    """重命名会话。"""
+
+    title: str = Field(min_length=1, max_length=200)
+
+
+class MessageOut(BaseModel):
+    """一条聊天记录。助手消息会带上本轮用到的参考片段，便于切换会话时还原来源行。"""
+
+    message_id: int
+    role: str  # user / assistant
+    content: str
+    sources: list[dict] = []
+    created_at: str
+
+
 class SourceOut(BaseModel):
     """一个数据源（MinerU 产物目录）。missing=True 表示目录里的 full.md 已经不在了。"""
 
@@ -71,9 +103,16 @@ class JobOut(BaseModel):
 
 
 class ChatIn(BaseModel):
-    """提问。历史由后端会话持有，前端不需要每次上传。"""
+    """提问。必须带 session_id：历史存在库里，按会话取，前端不需要每次上传。"""
 
     question: str = Field(min_length=1)
+    session_id: str = Field(min_length=1, description="往哪个会话里问")
+
+
+class ChatClearIn(BaseModel):
+    """清空某个会话的消息（会话本身保留）。"""
+
+    session_id: str = Field(min_length=1)
 
 
 class ChatClearOut(BaseModel):

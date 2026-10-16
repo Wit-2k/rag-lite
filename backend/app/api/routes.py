@@ -15,8 +15,13 @@ from fastapi.responses import StreamingResponse
 
 from app.api.jobs import DuplicateError, Job
 from app.api.models import (
+    ChatClearIn,
     ChatClearOut,
     ChatIn,
+    MessageOut,
+    SessionCreateIn,
+    SessionOut,
+    SessionRenameIn,
     ErrorOut,
     HealthOut,
     JobAcceptedOut,
@@ -31,6 +36,7 @@ from app.core.ingest import ingest, remove_source
 from app.core.openrouter import ALLOWED_DIMS
 from app.core.query import ChatSession, DoneEvent, RetrievalEvent, TokenEvent
 from app.core.schema import source_id_for
+from app.core.sessions import DEFAULT_TITLE, SessionStore
 from app.core.store import Store, StoreError
 
 router = APIRouter(prefix="/api")
@@ -40,6 +46,10 @@ SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 def get_store(request: Request) -> Store:
     return request.app.state.store
+
+
+def get_sessions(request: Request) -> SessionStore:
+    return request.app.state.sessions
 
 
 def is_stale(row: dict, settings) -> bool:
@@ -170,60 +180,117 @@ def get_job(job_id: str, request: Request) -> JobOut:
     return JobOut(**job.as_dict())
 
 
-def get_chat_session(request: Request) -> ChatSession:
-    """会话在内存里，首次提问时创建（这样没配密钥也能正常启动）。"""
-    session = getattr(request.app.state, "chat", None)
-    if session is None:
-        settings = request.app.state.settings
-        session = ChatSession(
-            get_store(request),
-            api_key=settings.embed_key,  # 兜底：三个角色都没单独配时用共享密钥
-            chat_model=settings.chat_model,
-            chat_base_url=settings.chat_base_url,
-            chat_api_key=settings.chat_key,
-            embed_model=settings.embed_model,
-            embed_base_url=settings.embed_base_url,
-            embed_api_key=settings.embed_key,
-            rerank_model=settings.rerank_model,
-            rerank_base_url=settings.rerank_base_url,
-            rerank_api_key=settings.rerank_key,
-            retrieve_top_k=settings.retrieve_top_k,
-            context_n=settings.context_n,
-        )
-        request.app.state.chat = session
-    return session
+def build_chat_session(request: Request, session_id: str) -> ChatSession:
+    """按会话构建一次问答用的 ChatSession：历史从库里读，不再有内存单例。
+
+    每次请求新建一个很便宜（只持有配置与一个列表），好处是不必再管「切会话」时那份内存状态，
+    两个会话也不会互相串历史。
+    """
+    settings = request.app.state.settings
+    return ChatSession(
+        get_store(request),
+        api_key=settings.embed_key,  # 兜底：三个角色都没单独配时用共享密钥
+        chat_model=settings.chat_model,
+        chat_base_url=settings.chat_base_url,
+        chat_api_key=settings.chat_key,
+        embed_model=settings.embed_model,
+        embed_base_url=settings.embed_base_url,
+        embed_api_key=settings.embed_key,
+        rerank_model=settings.rerank_model,
+        rerank_base_url=settings.rerank_base_url,
+        rerank_api_key=settings.rerank_key,
+        retrieve_top_k=settings.retrieve_top_k,
+        context_n=settings.context_n,
+        history=get_sessions(request).history(session_id),
+    )
+
+
+# ---------------------------------------------------------------- 会话
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+def list_sessions(request: Request) -> list[SessionOut]:
+    """按最近更新倒序列出所有会话。"""
+    return [SessionOut(**row) for row in get_sessions(request).list()]
+
+
+@router.post("/sessions", response_model=SessionOut, status_code=201)
+def create_session(payload: SessionCreateIn, request: Request) -> SessionOut:
+    """新建会话（标题留空则用默认名，发出第一个问题后会自动命名）。"""
+    row = get_sessions(request).create(payload.title or DEFAULT_TITLE)
+    return SessionOut(**row)
+
+
+@router.put("/sessions/{session_id}", response_model=SessionOut, responses={404: {"model": ErrorOut}})
+def rename_session(session_id: str, payload: SessionRenameIn, request: Request) -> SessionOut:
+    """重命名会话。"""
+    sessions = get_sessions(request)
+    if not sessions.rename(session_id, payload.title):
+        raise HTTPException(status_code=404, detail=f"没有这个会话：{session_id}")
+    row = sessions.get(session_id) or {}
+    row.setdefault("message_count", len(sessions.messages(session_id)))
+    return SessionOut(**row)
+
+
+@router.delete("/sessions/{session_id}", status_code=204, responses={404: {"model": ErrorOut}})
+def delete_session(session_id: str, request: Request) -> None:
+    """删会话，连带它的聊天记录（前端会先弹一次确认）。"""
+    if not get_sessions(request).delete(session_id):
+        raise HTTPException(status_code=404, detail=f"没有这个会话：{session_id}")
+
+
+@router.get("/sessions/{session_id}/messages", response_model=list[MessageOut], responses={404: {"model": ErrorOut}})
+def session_messages(session_id: str, request: Request) -> list[MessageOut]:
+    """某个会话的全部消息（含助手消息附带的参考片段），切换到该会话时用它渲染。"""
+    sessions = get_sessions(request)
+    if sessions.get(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"没有这个会话：{session_id}")
+    return [MessageOut(**row) for row in sessions.messages(session_id)]
 
 
 @router.post("/chat")
 def chat(payload: ChatIn, request: Request) -> StreamingResponse:
-    """提问，返回 text/event-stream。历史默认全带（后端会话持有），清空用 /api/chat/clear。"""
+    """提问，返回 text/event-stream。历史按 session_id 从库里取，回答完落库。
+
+    落库时机：**问题先落**（这样上游挂了也能看到问过什么），回答在流结束时落。
+    若一个字都没产出（比如上游 401），把刚才那条问题撤掉，免得库里留下没有回答的问答。
+    """
     settings = request.app.state.settings
+    sessions = get_sessions(request)
+    if sessions.get(payload.session_id) is None:
+        raise HTTPException(status_code=404, detail=f"没有这个会话：{payload.session_id}（先 POST /api/sessions 建一个）")
     if not settings.configured:
         raise HTTPException(status_code=400, detail="还没有配置 OPENROUTER_API_KEY，无法检索与回答")
-    session = get_chat_session(request)
+
+    # 顺序要紧：先按「不含本轮提问」的历史构建会话，再把问题落库。
+    # 反过来的话历史里已经有本轮问题，拼提示词时会再问一遍（实测踩过）。
+    session = build_chat_session(request, payload.session_id)
+    sessions.title_from_question(payload.session_id, payload.question)  # 首次提问后据首问命名
+    question_id = sessions.append(payload.session_id, "user", payload.question)
 
     def events():
+        sources: list[dict] = []
+        answer: list[str] = []
         try:
             for event in session.ask(payload.question):
                 if isinstance(event, RetrievalEvent):
-                    frame = {
-                        "type": "sources",
-                        "items": [
-                            {
-                                "rank": source.rank,
-                                "name": source.name,
-                                "heading": source.heading,
-                                "score": round(source.rerank_score, 4),
-                                "distance": round(source.cosine_distance, 4),
-                                "start": source.start,
-                                "end": source.end,
-                                "images": list(source.images),
-                                "preview": " ".join(source.text.split())[:120],
-                            }
-                            for source in event.sources
-                        ],
-                    }
+                    sources = [
+                        {
+                            "rank": source.rank,
+                            "name": source.name,
+                            "heading": source.heading,
+                            "score": round(source.rerank_score, 4),
+                            "distance": round(source.cosine_distance, 4),
+                            "start": source.start,
+                            "end": source.end,
+                            "images": list(source.images),
+                            "preview": " ".join(source.text.split())[:120],
+                        }
+                        for source in event.sources
+                    ]
+                    frame = {"type": "sources", "items": sources}
                 elif isinstance(event, TokenEvent):
+                    answer.append(event.text)
                     frame = {"type": "token", "text": event.text}
                 else:
                     assert isinstance(event, DoneEvent)
@@ -239,18 +306,25 @@ def chat(payload: ChatIn, request: Request) -> StreamingResponse:
                 yield f"data: {json.dumps(frame, ensure_ascii=False)}\n\n"
         except Exception as exc:  # 出错也要让前端知道，而不是静默断流
             yield f"data: {json.dumps({'type': 'error', 'message': f'{type(exc).__name__}: {exc}'}, ensure_ascii=False)}\n\n"
+        finally:
+            # 无论正常结束、报错、还是前端中途断开（生成器被关闭），都在这里落库
+            text = "".join(answer)
+            if text:
+                sessions.append(payload.session_id, "assistant", text, sources=sources)
+            else:
+                sessions.drop_message(question_id)
 
     return StreamingResponse(events(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.post("/chat/clear", response_model=ChatClearOut)
-def clear_chat(request: Request) -> ChatClearOut:
-    """清空对话上下文（历史不再随下一次提问发出）。"""
-    session = getattr(request.app.state, "chat", None)
-    if session is None:
-        return ChatClearOut(cleared=0, turns=0)
-    cleared = session.clear()
-    return ChatClearOut(cleared=cleared, turns=session.turns)
+def clear_chat(payload: ChatClearIn, request: Request) -> ChatClearOut:
+    """清空某个会话的消息（会话本身保留，列表里还在）。"""
+    sessions = get_sessions(request)
+    if sessions.get(payload.session_id) is None:
+        raise HTTPException(status_code=404, detail=f"没有这个会话：{payload.session_id}")
+    cleared = sessions.clear(payload.session_id)
+    return ChatClearOut(cleared=cleared, turns=cleared // 2)
 
 
 # ---------------------------------------------------------------- 设置

@@ -16,6 +16,7 @@ from app.api.jobs import JobRegistry
 from app.api.reload import env_stamp, maybe_reload_settings
 from app.api.routes import router
 from app.config import Settings
+from app.core.sessions import SessionStore
 from app.core.store import Store
 
 
@@ -43,7 +44,7 @@ def create_app(
     app.state.settings = settings
     app.state.store = store or Store(settings.db_uri, dim=settings.embed_dim)
     app.state.jobs = JobRegistry(limit=settings.max_parallel_imports)
-    app.state.chat = None  # 首次提问时才建会话（这样没配密钥也能正常启动）
+    app.state.sessions = SessionStore(Path(settings.data_dir) / "sessions.db")
     app.state.env_stamp = env_stamp(settings.root)  # 记住已加载的 .env 版本，变了就热重载
 
     @app.middleware("http")

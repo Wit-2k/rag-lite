@@ -4,7 +4,8 @@
 - **每次提问默认带上全部历史**：`ChatSession.ask()` 会把历史上每一轮的「用户原文 + 助手回答」
   按顺序放进 messages，再在最后一条消息里附上这一次检索到的参考片段；
 - 历史里只存**用户原始问题**，不存参考片段。片段每次都重新检索，历史就不会随轮数膨胀；
-- 想重开一轮：`ChatSession.clear()`（返回被清掉的条数）。将来 HTTP 层会把它暴露成 `POST /api/chat/clear`。
+- 历史由调用方注入（HTTP 层按会话从 SQLite 读出来）；`ChatSession.clear()` 只清内存里这份，
+  真正「清空某个会话」是删库里的消息（`POST /api/chat/clear`）。
 
 回答生成走 `ChatStream`（OpenAI Compatible），逐段产出文本；管线自己产出三类事件：
 `RetrievalEvent`（这次用到的片段）→ 若干 `TokenEvent`（文本增量）→ `DoneEvent`（完整回答 + 用量）。
@@ -157,6 +158,7 @@ class ChatSession:
         retrieve_top_k: int = 20,
         context_n: int = 3,
         rerank_doc_chars: int | None = None,
+        history: list[dict] | None = None,
     ) -> None:
         self.store = store
         self.api_key = api_key
@@ -173,7 +175,8 @@ class ChatSession:
         self.retrieve_top_k = retrieve_top_k
         self.context_n = context_n
         self.rerank_doc_chars = rerank_doc_chars
-        self.history: list[dict] = []
+        # 历史由调用方传入（HTTP 层从 SQLite 按会话读）；不传就是空会话
+        self.history: list[dict] = list(history or [])
 
     # —— 上下文管理 ————————————————————————————————————————————
 

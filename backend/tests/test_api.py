@@ -333,8 +333,14 @@ def test_unknown_job_404(client: TestClient) -> None:
 # ---------------------------------------------------------------- 对话（SSE）
 
 
+def new_session(client: TestClient) -> str:
+    """聊天现在必须带 session_id（历史存库里、按会话取），所以先建一个会话。"""
+    return client.post("/api/sessions", json={}).json()["session_id"]
+
+
 def test_chat_streams_sources_tokens_done(client: TestClient) -> None:
-    with client.stream("POST", "/api/chat", json={"question": "国奖多少钱？"}) as response:
+    with client.stream("POST", "/api/chat",
+                       json={"question": "国奖多少钱？", "session_id": new_session(client)}) as response:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         response.read()  # 流式响应要先读完才能取 text
@@ -352,22 +358,25 @@ def test_chat_streams_sources_tokens_done(client: TestClient) -> None:
 
 
 def test_chat_keeps_history_and_clear_empties_it(client: TestClient, chat: FakeChat) -> None:
-    client.post("/api/chat", json={"question": "第一问"}).read()
-    client.post("/api/chat", json={"question": "第二问"}).read()
+    session_id = new_session(client)
+    client.post("/api/chat", json={"question": "第一问", "session_id": session_id}).read()
+    client.post("/api/chat", json={"question": "第二问", "session_id": session_id}).read()
 
     second_call = chat.calls[-1]
     assert any(message.get("content") == "第一问" for message in second_call), "第二问应带上第一问的历史"
 
-    cleared = client.post("/api/chat/clear")
+    cleared = client.post("/api/chat/clear", json={"session_id": session_id})
     assert cleared.status_code == 200
-    assert cleared.json() == {"cleared": 4, "turns": 0}
+    assert cleared.json() == {"cleared": 4, "turns": 2}   # 清掉 4 条消息 = 2 轮
 
-    client.post("/api/chat", json={"question": "第三问"}).read()
+    client.post("/api/chat", json={"question": "第三问", "session_id": session_id}).read()
     assert len(chat.calls[-1]) == 2, "清空后只剩 system + 本轮问题"
 
 
 def test_chat_clear_before_any_turn(client: TestClient) -> None:
-    assert client.post("/api/chat/clear").json() == {"cleared": 0, "turns": 0}
+    session_id = new_session(client)
+
+    assert client.post("/api/chat/clear", json={"session_id": session_id}).json() == {"cleared": 0, "turns": 0}
 
 
 def test_chat_rejects_empty_question(client: TestClient) -> None:
@@ -378,7 +387,7 @@ def test_chat_without_key_is_400(tmp_path: Path, store: Store) -> None:
     settings = Settings(root=tmp_path, data_dir=tmp_path, db_uri=store.db_uri, api_key="", embed_dim=DIM)
     client = TestClient(create_app(settings=settings, store=store))
 
-    response = client.post("/api/chat", json={"question": "问"})
+    response = client.post("/api/chat", json={"question": "问", "session_id": new_session(client)})
 
     assert response.status_code == 400
     assert "OPENROUTER_API_KEY" in response.json()["detail"]
@@ -393,7 +402,7 @@ def test_chat_error_is_reported_as_sse_frame(client: TestClient, monkeypatch: py
 
     monkeypatch.setattr(query_module.ChatSession, "ask", boom)
 
-    frames = sse_frames(client.post("/api/chat", json={"question": "问"}))
+    frames = sse_frames(client.post("/api/chat", json={"question": "问", "session_id": new_session(client)}))
 
     assert frames[-1]["type"] == "error"
     assert "上游炸了" in frames[-1]["message"]
@@ -562,9 +571,10 @@ def test_put_settings_chat_uses_new_model(client: TestClient, monkeypatch: pytes
         return FakeChat()
 
     monkeypatch.setattr(query_module, "ChatStream", fake_stream)
-    client.post("/api/chat", json={"question": "旧模型问一句"}).read()  # 先建一次会话
+    session_id = new_session(client)
+    client.post("/api/chat", json={"question": "旧模型问一句", "session_id": session_id}).read()
 
     client.put("/api/settings", json={"chat_model": "brand/new-model"})
-    client.post("/api/chat", json={"question": "新模型问一句"}).read()
+    client.post("/api/chat", json={"question": "新模型问一句", "session_id": session_id}).read()
 
     assert seen[-1]["model"] == "brand/new-model"
