@@ -10,89 +10,245 @@
         x:DataType="vm:MainViewModel"
         Icon="/Assets/book.ico"
         Title="rag-lite — 本地文档问答"
-        Width="1180" Height="760" MinWidth="900" MinHeight="600">
+        Width="1180" Height="760" MinWidth="900" MinHeight="600"
+        TransparencyLevelHint="Mica,AcrylicBlur"
+        Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
 
-    <!-- 左边：数据源管理；右边：对话 -->
+    <!-- 主布局：左侧资源管理器/侧边栏风格，右侧工作台对话区 -->
     <Grid ColumnDefinitions="320,1,*">
 
-        <DockPanel Grid.Column="0" Margin="12">
-            <StackPanel DockPanel.Dock="Top" Spacing="8">
-                <TextBlock Text="数据源" FontSize="16" FontWeight="SemiBold" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="批量添加目录…" Command="{Binding AddSourceCommand}"
-                            ToolTip.Tip="可一次选多个 MinerU 产物目录；后端同时最多导入 3 个，其余排队" />
-                    <Button Content="刷新" Command="{Binding RefreshCommand}" />
+        <!-- 左边栏：数据源侧边栏，采用 Fluent Navigation/Sidebar 色彩层次 -->
+        <Border Grid.Column="0"
+                Background="{DynamicResource LayerOnMicaBaseAltFillColorDefaultBrush}"
+                Padding="16,14">
+            <DockPanel>
+                <!-- 顶部操作区 -->
+                <StackPanel DockPanel.Dock="Top" Spacing="10">
+                    <TextBlock Text="数据源" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="批量添加目录…"
+                                Classes="accent"
+                                Command="{Binding AddSourceCommand}"
+                                ToolTip.Tip="可一次选多个 MinerU 产物目录；后端同时最多导入 3 个，其余排队" />
+                        <Button Content="刷新"
+                                Command="{Binding RefreshCommand}" />
+                    </StackPanel>
+
+                    <!-- 后端准备与状态提示 -->
+                    <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8,6"
+                            IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="{Binding Status}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                    </Border>
                 </StackPanel>
-                <TextBlock Text="{Binding Status}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
-            </StackPanel>
 
-            <ListBox ItemsSource="{Binding Sources}" Margin="0,10,0,0">
-                <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="vm:SourceItemViewModel">
-                        <StackPanel Spacing="4" Margin="0,4">
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Subtitle}" FontSize="12" Opacity="0.7" />
-                            <TextBlock Text="{Binding Badge}" FontSize="12" Foreground="#D97706"
-                                       TextWrapping="Wrap" IsVisible="{Binding HasBadge}" />
-                            <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100"
-                                         IsIndeterminate="False" IsVisible="{Binding IsImporting}" />
-                            <TextBlock Text="{Binding Status}" FontSize="12" TextWrapping="Wrap"
-                                       IsVisible="{Binding HasStatus}" />
-                            <Button Content="移除"
-                                    HorizontalAlignment="Left" FontSize="12" Padding="8,2"
-                                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
-                                    CommandParameter="{Binding}" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </DockPanel>
+                <!-- 数据源列表：Fluent 卡片列表风格 -->
+                <ListBox ItemsSource="{Binding Sources}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Margin="0,12,0,0">
+                    <ListBox.Styles>
+                        <!-- 调整每项内边距与选中交互 -->
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,8" />
+                            <Setter Property="CornerRadius" Value="6" />
+                            <Setter Property="Background" Value="Transparent" />
+                        </Style>
+                    </ListBox.Styles>
 
-        <Border Grid.Column="1" Background="#22000000" />
-
-        <DockPanel Grid.Column="2" Margin="12">
-            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
-                <StackPanel Spacing="2">
-                    <TextBlock Text="对话" FontSize="16" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding ConfigHint}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
-                    <Button Content="设置" Command="{Binding OpenSettingsCommand}" />
-                    <Button Content="清空上下文" Command="{Binding ClearContextCommand}" />
-                    <Button Content="停止" Command="{Binding CancelCommand}" IsEnabled="{Binding IsAsking}"
-                            IsVisible="{Binding IsAsking}" />
-                </StackPanel>
-            </Grid>
-
-            <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
-                <TextBox x:Name="QuestionBox" Text="{Binding Question}" PlaceholderText="问点什么…（回车发送）"
-                         AcceptsReturn="False" KeyDown="OnQuestionKeyDown" />
-                <Button Grid.Column="1" Content="发送" Command="{Binding SendCommand}" IsEnabled="{Binding IsReady}" />
-            </Grid>
-
-            <ScrollViewer x:Name="ChatScroll" Margin="0,10,0,0">
-                <ItemsControl ItemsSource="{Binding Messages}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:MessageViewModel">
-                            <Border Margin="0,6" Padding="10" CornerRadius="6" Background="#10808080">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SourceItemViewModel">
+                            <!-- 独立卡片外观 -->
+                            <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="12,10">
                                 <StackPanel Spacing="6">
-                                    <TextBlock Text="{Binding SourcesText}" FontSize="12" Opacity="0.65"
-                                               TextWrapping="Wrap" IsVisible="{Binding HasSources}" />
-                                    <!-- 用户消息纯文本即可；助手回答按 Markdown 渲染（列表、表格、加粗都好看）
-                                         注意：用的是 Markdown.Avalonia 12.0.0-a3（预发布版），
-                                         11.0.3 是按 Avalonia 11 编译的、在 Avalonia 12 下会崩。 -->
-                                    <SelectableTextBlock Text="{Binding Content}" TextWrapping="Wrap"
-                                                         IsVisible="{Binding IsUser}" />
-                                    <md:MarkdownScrollViewer Markdown="{Binding Content}"
-                                                             IsVisible="{Binding IsAssistant}" />
-                                    <TextBlock Text="{Binding Meta}" FontSize="12" Opacity="0.6"
-                                               IsVisible="{Binding HasMeta}" />
+                                    <TextBlock Text="{Binding Name}"
+                                               FontWeight="SemiBold"
+                                               FontSize="13"
+                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Subtitle}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                                    <!-- 警告标记：如目录丢失或维度不一致 -->
+                                    <Border Background="#1FF59E0B"
+                                            BorderBrush="#60F59E0B"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Padding="6,2"
+                                            HorizontalAlignment="Left"
+                                            IsVisible="{Binding HasBadge}">
+                                        <TextBlock Text="{Binding Badge}"
+                                                   FontSize="11"
+                                                   Foreground="#D97706"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+
+                                    <!-- 导入进度条 -->
+                                    <ProgressBar Value="{Binding Progress}"
+                                                 Minimum="0" Maximum="100"
+                                                 Height="4"
+                                                 CornerRadius="2"
+                                                 IsIndeterminate="False"
+                                                 IsVisible="{Binding IsImporting}" />
+
+                                    <TextBlock Text="{Binding Status}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding HasStatus}" />
+
+                                    <!-- 移除按钮：轻量级次要按钮 -->
+                                    <Button Content="移除"
+                                            HorizontalAlignment="Left"
+                                            FontSize="12"
+                                            Padding="10,3"
+                                            Margin="0,2,0,0"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
+                                            CommandParameter="{Binding}" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-        </DockPanel>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 左右分栏分割线：使用系统边框画刷，与 Mica 融合更自然 -->
+        <Border Grid.Column="1"
+                Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+        <!-- 右边栏：问答对话工作台 -->
+        <Border Grid.Column="2"
+                Background="{DynamicResource ApplicationPageBackgroundThemeBrush}"
+                Padding="16,14">
+            <DockPanel>
+                <!-- 对话顶部标题与快捷操作栏 -->
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                    <StackPanel Spacing="3" VerticalAlignment="Center">
+                        <TextBlock Text="对话"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        <TextBlock Text="{Binding ConfigHint}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding ConfigHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Content="设置" Command="{Binding OpenSettingsCommand}" />
+                        <Button Content="清空上下文" Command="{Binding ClearContextCommand}" />
+                        <Button Content="停止"
+                                Command="{Binding CancelCommand}"
+                                IsEnabled="{Binding IsAsking}"
+                                IsVisible="{Binding IsAsking}" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- 底部输入栏：Windows 现代卡片输入条 -->
+                <Border DockPanel.Dock="Bottom"
+                        Margin="0,12,0,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="4">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox x:Name="QuestionBox"
+                                 Text="{Binding Question}"
+                                 PlaceholderText="输入问题…（回车发送）"
+                                 AcceptsReturn="False"
+                                 KeyDown="OnQuestionKeyDown"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 VerticalAlignment="Center"
+                                 Padding="10,8" />
+                        <Button Grid.Column="1"
+                                Content="发送"
+                                Classes="accent"
+                                Command="{Binding SendCommand}"
+                                IsEnabled="{Binding IsReady}"
+                                Padding="16,8"
+                                Margin="4,0,2,0" />
+                    </Grid>
+                </Border>
+
+                <!-- 消息滚动列表：区分用户与助手气泡 -->
+                <ScrollViewer x:Name="ChatScroll">
+                    <ItemsControl ItemsSource="{Binding Messages}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MessageViewModel">
+                                <StackPanel Margin="0,6">
+                                    <!-- 用户气泡：靠右放置，采用强调色卡片与高对比文字 -->
+                                    <Border HorizontalAlignment="Right"
+                                            MaxWidth="780"
+                                            CornerRadius="8,8,2,8"
+                                            Padding="14,10"
+                                            Background="{DynamicResource AccentButtonBackground}"
+                                            BorderBrush="{DynamicResource AccentButtonBorderBrush}"
+                                            BorderThickness="1"
+                                            IsVisible="{Binding IsUser}">
+                                        <SelectableTextBlock Text="{Binding Content}"
+                                                             Foreground="{DynamicResource AccentButtonForeground}"
+                                                             TextWrapping="Wrap"
+                                                             FontSize="13.5" />
+                                    </Border>
+
+                                    <!-- 助手气泡：靠左放置，采用 Windows Fluent 标准卡片与边框 -->
+                                    <Border HorizontalAlignment="Left"
+                                            MaxWidth="860"
+                                            CornerRadius="8,8,8,2"
+                                            Padding="16,12"
+                                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            IsVisible="{Binding IsAssistant}">
+                                        <StackPanel Spacing="8">
+                                            <!-- 参考片段标注小字 -->
+                                            <Border Background="{DynamicResource LayerFillColorDefaultBrush}"
+                                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="4"
+                                                    Padding="8,4"
+                                                    HorizontalAlignment="Left"
+                                                    IsVisible="{Binding HasSources}">
+                                                <TextBlock Text="{Binding SourcesText}"
+                                                           FontSize="11.5"
+                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                           TextWrapping="Wrap" />
+                                            </Border>
+
+                                            <!-- Markdown 渲染输出（列表、公式、代码高亮） -->
+                                            <md:MarkdownScrollViewer Markdown="{Binding Content}" />
+
+                                            <!-- 耗时与 Token 元信息 -->
+                                            <TextBlock Text="{Binding Meta}"
+                                                       FontSize="11.5"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                                       IsVisible="{Binding HasMeta}" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
     </Grid>
 </Window>

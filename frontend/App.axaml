@@ -17,5 +17,35 @@
              版本注意：必须用 12.0.0-a3 及以上——11.0.3 是按 Avalonia 11 编译的，在 Avalonia 12 下会抛
              MissingMethodException（DynamicResourceExtension.ProvideValue），实测踩过。 -->
 
+        <!-- 全局字体栈：优先使用 Windows 11 Fluent 字体，搭配微软雅黑，保障中英文字体清晰优雅 -->
+        <Style Selector=":is(TopLevel)">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI, -apple-system, sans-serif" />
+        </Style>
+
+        <!-- Accent 主操作按钮样式（与 Windows 11 系统主题强调色保持协调） -->
+        <Style Selector="Button.accent">
+            <Setter Property="Background" Value="{DynamicResource AccentButtonBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentButtonForeground}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentButtonBorderBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundPointerOver}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentButtonForegroundPointerOver}" />
+        </Style>
+        <Style Selector="Button.accent:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundPressed}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentButtonForegroundPressed}" />
+        </Style>
+
+        <!-- 卡片式容器基础样式，营造 Windows Fluent 层次感 -->
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
     </Application.Styles>
 </Application>
