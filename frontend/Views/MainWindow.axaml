@@ -15,7 +15,8 @@
         Background="{DynamicResource RagWhite}">
 
     <!-- 主布局：左侧资源管理器/侧边栏风格，右侧工作台对话区 -->
-    <Grid ColumnDefinitions="320,1,240,1,*">
+    <!-- 列宽：数据源 320 | 分隔 | 会话 408（原 240 的 1.7 倍）| 分隔 | 对话 -->
+    <Grid ColumnDefinitions="320,1,408,1,*">
 
         <!-- 左边栏：数据源侧边栏，采用 Fluent Navigation/Sidebar 色彩层次 -->
         <Border Grid.Column="0"
