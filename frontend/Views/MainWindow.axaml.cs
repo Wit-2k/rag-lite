@@ -1,5 +1,8 @@
-// 窗口代码：选目录对话框（实现 IFolderPicker）、回车发送、聊天区自动滚到底。
+// 窗口代码：选目录对话框（实现 IFolderPicker）、回车发送、聊天区自动滚到底，
+// 以及「关窗只收进托盘、彻底退出走托盘菜单」的收尾逻辑。
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -13,10 +16,60 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog
 {
     private MainViewModel? _viewModel;
 
+    /// <summary>true 表示这次关闭是真的要退出（托盘菜单「彻底退出」会先把它置上）。</summary>
+    private bool _exiting;
+
     public MainWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        Closing += OnClosing;
+    }
+
+    /// <summary>点关闭键只是收进托盘：不结束进程，后端继续跑（导入、对话都还在）。
+    /// 真正退出走托盘的「彻底退出」，那条路会先把 _exiting 置上。</summary>
+    private void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_exiting)
+        {
+            return;
+        }
+        e.Cancel = true;
+        Hide();
+        AppLog.Write("[托盘] 窗口已收进托盘（进程与后端继续运行）");
+        _viewModel?.NotifyHiddenToTray();
+    }
+
+    /// <summary>从托盘把窗口叫回来（左键点托盘图标、或托盘菜单里的「显示主窗口」）。</summary>
+    public void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+        Activate();
+        // Windows 有时不让后台进程直接抢前台，用「置顶再取消」轻推一下
+        if (!Topmost)
+        {
+            Topmost = true;
+            Topmost = false;
+        }
+    }
+
+    /// <summary>彻底退出：先允许本次关闭，再让应用退出——App 的 Exit 回调会连同后端一起收尾。</summary>
+    public void ExitApplication()
+    {
+        AppLog.Write("[托盘] 请求彻底退出");
+        _exiting = true;
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
+        }
+        else
+        {
+            Close();
+        }
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

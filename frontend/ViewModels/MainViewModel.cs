@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject
     private MessageViewModel? _streaming;
     private CancellationTokenSource? _chatCts;
     private int _flushedLength;
+    private bool _trayHintShown;
 
     public MainViewModel(BackendProcess backend, IFolderPicker picker, ISettingsDialog settingsDialog)
     {
@@ -81,6 +82,22 @@ public partial class MainViewModel : ObservableObject
             Status = $"后端启动失败：{ex.Message}";
             Messages.Add(new MessageViewModel(isUser: false, content: $"⚠️ 后端启动失败：{ex.Message}\n\n启动命令：{_backend.CommandLine}"));
         }
+    }
+
+    /// <summary>窗口被收进托盘时调用：状态栏写一行；第一次再往对话区留一句，免得以为程序关了。</summary>
+    public void NotifyHiddenToTray()
+    {
+        Status = "已收进托盘（右键托盘图标可彻底退出）";
+        if (_trayHintShown)
+        {
+            return;
+        }
+        _trayHintShown = true;
+        Messages.Add(new MessageViewModel(
+            isUser: false,
+            content: "程序已收进系统托盘，后端继续运行。\n\n"
+                     + "· 点托盘图标（或再双击一次 RagLite.exe）可以把窗口叫回来\n"
+                     + "· 要彻底退出（连后端一起关掉），右键托盘图标选「彻底退出」"));
     }
 
     /// <summary>重新读一次健康状态与数据源列表。</summary>
