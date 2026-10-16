@@ -11,7 +11,12 @@ namespace frontend.Services;
 public sealed class BackendProcess : IAsyncDisposable
 {
     private const string HandshakePrefix = "RAGLITE_READY";
+
+    /// <summary>让后端盯着界面进程：界面被硬杀时后端自己退出（作业对象之外的第二道保险）。</summary>
+    private const string WatchParentArgument = "--watch-parent";
+
     private Process? _process;
+    private ChildJob? _job;
 
     /// <summary>后端地址，`StartAsync` 成功后才有值。</summary>
     public Uri? BaseAddress { get; private set; }
@@ -40,6 +45,13 @@ public sealed class BackendProcess : IAsyncDisposable
         };
 
         _process = Process.Start(info) ?? throw new InvalidOperationException($"无法启动后端：{CommandLine}");
+        // 两道保险防孤儿进程：① 作业对象（系统级，界面一死立刻杀掉整棵树）；
+        // ② 后端自己的看门狗（读 stdin，界面一死读到 EOF 就退出）——①建不出来时还有②档着
+        _job = ChildJob.TryCreate();
+        if (_job is not null && !_job.Assign(_process))
+        {
+            AppLog.Write("[后端] 提示：没能把后端放进作业对象（错误码见上），本次只靠看门狗兜底");
+        }
         var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(90));
         var recent = new Queue<string>();
         var ready = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -139,13 +151,13 @@ public sealed class BackendProcess : IAsyncDisposable
         var overridePath = Environment.GetEnvironmentVariable("RAGLITE_BACKEND");
         if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
         {
-            return (overridePath, "", Path.GetDirectoryName(overridePath)!);
+            return (overridePath, WatchParentArgument, Path.GetDirectoryName(overridePath)!);
         }
 
         var portable = Path.Combine(AppContext.BaseDirectory, "backend", "raglite-backend.exe");
         if (File.Exists(portable))
         {
-            return (portable, "", Path.GetDirectoryName(portable)!);
+            return (portable, WatchParentArgument, Path.GetDirectoryName(portable)!);
         }
 
         var repoRoot = FindRepoRoot();
@@ -159,7 +171,7 @@ public sealed class BackendProcess : IAsyncDisposable
         var backendDir = Path.Combine(repoRoot, "backend");
         var venvPython = Path.Combine(backendDir, ".venv", "Scripts", "python.exe");
         var python = File.Exists(venvPython) ? venvPython : "python";
-        return (python, "main.py", backendDir);
+        return (python, $"main.py {WatchParentArgument}", backendDir);
     }
 
     /// <summary>从 exe 所在目录往上找仓库根（开发期 exe 在 frontend/bin/Debug/net10.0/）。</summary>
@@ -193,6 +205,9 @@ public sealed class BackendProcess : IAsyncDisposable
         }
         _process?.Dispose();
         _process = null;
+        // 关掉作业句柄：即使上面那次 Kill 失败，系统也会把作业里的残余进程清掉
+        _job?.Dispose();
+        _job = null;
         return ValueTask.CompletedTask;
     }
 }
