@@ -1,0 +1,22 @@
+<PropertyGroup>
+  <OutputType>WinExe</OutputType>
+  <TargetFramework>net10.0</TargetFramework>
+  <Nullable>enable</Nullable>
+  <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+
+  <!-- 目标平台 Windows 64位 -->
+  <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+  <!-- 打包成纯单文件 exe -->
+  <PublishSingleFile>true</PublishSingleFile>
+
+  <!-- 嵌入符号文件，便于单文件报错排查 -->
+  <DebugType>embedded</DebugType>
+
+  <!-- 关键：开启 ReadyToRun 预编译（AOT 的平替） -->
+  <!-- 拥有接近 AOT 的启动速度，但保留 JIT 和完整反射能力，控件完全不报错 -->
+  <PublishReadyToRun>true</PublishReadyToRun>
+
+  <!-- 关闭激进裁剪，确保 Markdown.Avalonia 稳定运行 -->
+  <PublishTrimmed>false</PublishTrimmed>
+</PropertyGroup>

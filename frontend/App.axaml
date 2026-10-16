@@ -3,7 +3,7 @@
              x:Class="frontend.App"
              xmlns:local="using:frontend"
              RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+             <!-- "Default" 跟随系统主题；也可改成 "Dark" / "Light" -->
 
     <Application.DataTemplates>
         <local:ViewLocator />
@@ -11,5 +11,11 @@
 
     <Application.Styles>
         <FluentTheme />
+        <!-- Markdown.Avalonia 的排版样式由控件自己按 MarkdownStyleName 加载（默认 FluentTheme），
+             这里不用再 StyleInclude；若以后要换风格，可显式引入
+             avares://Markdown.Avalonia/StyleCollections/MarkdownStyle*.axaml。
+             版本注意：必须用 12.0.0-a3 及以上——11.0.3 是按 Avalonia 11 编译的，在 Avalonia 12 下会抛
+             MissingMethodException（DynamicResourceExtension.ProvideValue），实测踩过。 -->
+
     </Application.Styles>
 </Application>

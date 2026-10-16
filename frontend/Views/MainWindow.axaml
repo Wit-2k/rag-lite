@@ -1,22 +1,97 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:frontend.ViewModels"
+        xmlns:models="using:frontend.Models"
+        xmlns:md="clr-namespace:Markdown.Avalonia.Full;assembly=Markdown.Avalonia.Full"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="760"
         x:Class="frontend.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="frontend">
+        Title="rag-lite — 本地文档问答"
+        Width="1180" Height="760" MinWidth="900" MinHeight="600">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainViewModel />
-    </Design.DataContext>
+    <!-- 左边：数据源管理；右边：对话 -->
+    <Grid ColumnDefinitions="320,1,*">
 
-    <TextBox Text="{Binding Greeting}"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+        <DockPanel Grid.Column="0" Margin="12">
+            <StackPanel DockPanel.Dock="Top" Spacing="8">
+                <TextBlock Text="数据源" FontSize="16" FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="添加目录…" Command="{Binding AddSourceCommand}" />
+                    <Button Content="刷新" Command="{Binding RefreshCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding Status}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+            </StackPanel>
 
+            <ListBox ItemsSource="{Binding Sources}" Margin="0,10,0,0">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SourceItemViewModel">
+                        <StackPanel Spacing="4" Margin="0,4">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Subtitle}" FontSize="12" Opacity="0.7" />
+                            <TextBlock Text="{Binding Badge}" FontSize="12" Foreground="#D97706"
+                                       TextWrapping="Wrap" IsVisible="{Binding HasBadge}" />
+                            <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100"
+                                         IsIndeterminate="False" IsVisible="{Binding IsImporting}" />
+                            <TextBlock Text="{Binding Status}" FontSize="12" TextWrapping="Wrap"
+                                       IsVisible="{Binding HasStatus}" />
+                            <Button Content="移除"
+                                    HorizontalAlignment="Left" FontSize="12" Padding="8,2"
+                                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
+                                    CommandParameter="{Binding}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <Border Grid.Column="1" Background="#22000000" />
+
+        <DockPanel Grid.Column="2" Margin="12">
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="对话" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding ConfigHint}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                    <Button Content="设置" Command="{Binding OpenSettingsCommand}" />
+                    <Button Content="清空上下文" Command="{Binding ClearContextCommand}" />
+                    <Button Content="停止" Command="{Binding CancelCommand}" IsEnabled="{Binding IsAsking}"
+                            IsVisible="{Binding IsAsking}" />
+                </StackPanel>
+            </Grid>
+
+            <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+                <TextBox x:Name="QuestionBox" Text="{Binding Question}" PlaceholderText="问点什么…（回车发送）"
+                         AcceptsReturn="False" KeyDown="OnQuestionKeyDown" />
+                <Button Grid.Column="1" Content="发送" Command="{Binding SendCommand}" IsEnabled="{Binding IsReady}" />
+            </Grid>
+
+            <ScrollViewer x:Name="ChatScroll" Margin="0,10,0,0">
+                <ItemsControl ItemsSource="{Binding Messages}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:MessageViewModel">
+                            <Border Margin="0,6" Padding="10" CornerRadius="6" Background="#10808080">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{Binding SourcesText}" FontSize="12" Opacity="0.65"
+                                               TextWrapping="Wrap" IsVisible="{Binding HasSources}" />
+                                    <!-- 用户消息纯文本即可；助手回答按 Markdown 渲染（列表、表格、加粗都好看）
+                                         注意：用的是 Markdown.Avalonia 12.0.0-a3（预发布版），
+                                         11.0.3 是按 Avalonia 11 编译的、在 Avalonia 12 下会崩。 -->
+                                    <SelectableTextBlock Text="{Binding Content}" TextWrapping="Wrap"
+                                                         IsVisible="{Binding IsUser}" />
+                                    <md:MarkdownScrollViewer Markdown="{Binding Content}"
+                                                             IsVisible="{Binding IsAssistant}" />
+                                    <TextBlock Text="{Binding Meta}" FontSize="12" Opacity="0.6"
+                                               IsVisible="{Binding HasMeta}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
 </Window>

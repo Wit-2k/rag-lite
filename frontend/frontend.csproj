@@ -1,9 +1,37 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <!-- 产物叫 RagLite.exe，便携包里名字好看点（C# 命名空间仍是 frontend） -->
+    <AssemblyName>RagLite</AssemblyName>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Windows 上启用内建 COM 互操作（Avalonia 模板默认项）：拖放、剪贴板等系统集成要用 -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <!-- 只在 Release（= 打包）时生效，开发期的 Debug 构建保持轻快、输出仍在 bin/Debug/net10.0 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+
+    <!-- 打成一个 exe：交给用户的东西更干净 -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- 单文件下必须让原生库（libSkiaSharp / libHarfBuzzSharp / av_libglesv2）自解包，
+         否则 Avalonia 初始化时报 SkiaSharp DllNotFoundException（实测踩过） -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- 预编译（AOT 的平替）：启动更快，但保留 JIT 与完整反射，
+         所以 Avalonia 的 XAML 反射与 Markdown.Avalonia 都不会出问题 -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+
+    <!-- 明确不裁剪：ViewLocator 用 Type.GetType 找视图，裁剪会把视图剪掉 -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- 符号嵌进 exe：rag-lite-client.log 里的异常堆栈因此带文件名与行号 -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,6 +49,6 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Markdown.Avalonia" Version="11.0.3" />
+    <PackageReference Include="Markdown.Avalonia" Version="12.0.0-a3" />
   </ItemGroup>
 </Project>
