@@ -44,6 +44,8 @@ backend/tests/out/
 # ==========================================
 # 本地向量库落盘文件（体积大且属于运行时生成）
 backend/data/lancedb/
+# 运行期数据：会话与聊天记录（SQLite；-wal/-shm 是它的伴随文件）
+backend/data/sessions.db*
 backend/data/*.lance/
 *.lance/
 
