@@ -7,6 +7,7 @@
         x:Class="frontend.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
         Title="设置" Width="620" Height="700"
+        Icon="/Assets/book.ico"
         WindowStartupLocation="CenterOwner">
 
     <DockPanel Margin="16">

@@ -8,7 +8,7 @@
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="760"
         x:Class="frontend.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/book.ico"
         Title="rag-lite — 本地文档问答"
         Width="1180" Height="760" MinWidth="900" MinHeight="600">
 

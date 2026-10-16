@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- exe 的图标（资源管理器/任务栏/固定到开始菜单都用它）。
+         多尺寸 ICO 由 book.png(608×608) 生成：16/24/32/48/64/128/256 -->
+    <ApplicationIcon>Assets\book.ico</ApplicationIcon>
 
     <!-- Windows 上启用内建 COM 互操作（Avalonia 模板默认项）：拖放、剪贴板等系统集成要用 -->
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
