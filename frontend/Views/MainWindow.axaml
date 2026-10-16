@@ -15,7 +15,7 @@
         Background="{DynamicResource RagWhite}">
 
     <!-- 主布局：左侧资源管理器/侧边栏风格，右侧工作台对话区 -->
-    <Grid ColumnDefinitions="320,1,*">
+    <Grid ColumnDefinitions="320,1,240,1,*">
 
         <!-- 左边栏：数据源侧边栏，采用 Fluent Navigation/Sidebar 色彩层次 -->
         <Border Grid.Column="0"
@@ -127,12 +127,96 @@
             </DockPanel>
         </Border>
 
+        <!-- 会话栏：紧挨在「数据源」右边（新建 / 切换 / 重命名 / 删除） -->
+        <Border Grid.Column="2"
+                Background="{DynamicResource RagWhite}"
+                Padding="14,14">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Spacing="10">
+                    <TextBlock Text="会话" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                    <Button Content="新建会话"
+                            Classes="accent"
+                            HorizontalAlignment="Stretch"
+                            Command="{Binding NewSessionCommand}"
+                            ToolTip.Tip="新开一轮对话；标题会按第一个问题自动生成" />
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding Sessions}"
+                         SelectedItem="{Binding CurrentSession}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Margin="0,12,0,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SessionItemViewModel">
+                            <Border Background="{DynamicResource RagSurface}"
+                                    BorderBrush="{DynamicResource RagHairline}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10,8">
+                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                    <!-- 标题：平时是文字，重命名时换成输入框 -->
+                                    <TextBlock Grid.Row="0" Grid.Column="0"
+                                               Text="{Binding Title}"
+                                               IsVisible="{Binding !IsRenaming}"
+                                               TextTrimming="CharacterEllipsis"
+                                               DoubleTapped="OnSessionTitleDoubleTapped"
+                                               ToolTip.Tip="{Binding Title}"
+                                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                                    <TextBox Grid.Row="0" Grid.Column="0"
+                                             Text="{Binding Title}"
+                                             IsVisible="{Binding IsRenaming}"
+                                             AttachedToVisualTree="OnRenameBoxAttached"
+                                             KeyDown="OnRenameKeyDown"
+                                             Tag="{Binding}"
+                                             FontSize="13" />
+
+                                    <!-- 行尾操作：左上「✎」进重命名，删除第一次点是确认 -->
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                                VerticalAlignment="Center">
+                                        <Button Content="✎" FontSize="12" Padding="6,2"
+                                                IsVisible="{Binding !IsRenaming}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).BeginRenameCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="重命名（也可以双击标题）" />
+                                        <Button Content="×" FontSize="12" Padding="6,2"
+                                                IsVisible="{Binding !IsConfirmingDelete}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DeleteSessionCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="删除会话（连同聊天记录）" />
+                                        <Button Content="确定删除"
+                                                IsVisible="{Binding IsConfirmingDelete}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DeleteSessionCommand}"
+                                                CommandParameter="{Binding}" />
+                                        <Button Content="取消"
+                                                IsVisible="{Binding IsConfirmingDelete}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CancelDeleteCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                               Text="{Binding Subtitle}"
+                                               FontSize="11"
+                                               Margin="0,4,0,0"
+                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
         <!-- 左右分栏分割线：使用系统边框画刷，与 Mica 融合更自然 -->
         <Border Grid.Column="1"
                 Background="{DynamicResource RagHairline}" />
 
+        <!-- 会话栏与对话区之间的分隔线 -->
+        <Border Grid.Column="3"
+                Background="{DynamicResource RagHairline}" />
+
         <!-- 右边栏：问答对话工作台 -->
-        <Border Grid.Column="2"
+        <Border Grid.Column="4"
                 Background="{DynamicResource RagWhite}"
                 Padding="16,14">
             <DockPanel>

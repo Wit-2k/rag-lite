@@ -102,10 +102,68 @@ public sealed class ApiClient : IDisposable
         return Json.Parse(body, ApiJson.Default.SettingsDto);
     }
 
-    /// <summary>清空对话上下文（历史不再随下一次提问发出）。</summary>
-    public async Task<ChatClearDto> ClearChatAsync(CancellationToken cancellationToken = default)
+    /// <summary>列出所有会话（后端按「最近使用」倒序）。</summary>
+    public async Task<IReadOnlyList<SessionDto>> ListSessionsAsync(CancellationToken cancellationToken = default)
     {
-        var response = await _http.PostAsync("/api/chat/clear", null, cancellationToken);
+        var body = await _http.GetStringAsync("/api/sessions", cancellationToken);
+        return Json.Parse(body, ApiJson.Default.IReadOnlyListSessionDto);
+    }
+
+    /// <summary>新建会话，返回新建出来的那一行。</summary>
+    public async Task<SessionDto> CreateSessionAsync(string? title = null, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/sessions")
+        {
+            Content = JsonContent.Create(new SessionCreateDto(title), ApiJson.Default.SessionCreateDto),
+        };
+        var response = await _http.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+        return Json.Parse(body, ApiJson.Default.SessionDto);
+    }
+
+    /// <summary>重命名会话。</summary>
+    public async Task RenameSessionAsync(string sessionId, string title, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/sessions/{sessionId}")
+        {
+            Content = JsonContent.Create(new SessionRenameDto(title), ApiJson.Default.SessionRenameDto),
+        };
+        var response = await _http.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+    }
+
+    /// <summary>删会话（连带它的聊天记录）。</summary>
+    public async Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var response = await _http.DeleteAsync($"/api/sessions/{sessionId}", cancellationToken);
+        if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+    }
+
+    /// <summary>某个会话的全部聊天记录（含助手消息附带的来源），切换会话时用它渲染。</summary>
+    public async Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var body = await _http.GetStringAsync($"/api/sessions/{sessionId}/messages", cancellationToken);
+        return Json.Parse(body, ApiJson.Default.IReadOnlyListChatMessageDto);
+    }
+
+    /// <summary>清空某个会话的消息（会话本身保留）。</summary>
+    public async Task<ChatClearDto> ClearChatAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat/clear")
+        {
+            Content = JsonContent.Create(new ChatClearRequest(sessionId), ApiJson.Default.ChatClearRequest),
+        };
+        var response = await _http.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
@@ -119,11 +177,12 @@ public sealed class ApiClient : IDisposable
     /// </summary>
     public async IAsyncEnumerable<ChatEvent> StreamChatAsync(
         string question,
+        string sessionId,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
         {
-            Content = JsonContent.Create(new ChatRequest(question), ApiJson.Default.ChatRequest),
+            Content = JsonContent.Create(new ChatRequest(question, sessionId), ApiJson.Default.ChatRequest),
         };
         using var response = await _http.SendAsync(
             request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

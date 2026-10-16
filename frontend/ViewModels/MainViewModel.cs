@@ -27,6 +27,7 @@ public partial class MainViewModel : ObservableObject
     private CancellationTokenSource? _chatCts;
     private int _flushedLength;
     private bool _trayHintShown;
+    private bool _switchingSession;   // 切换会话时装载消息，避免与列表刷新互相触发
 
     public MainViewModel(BackendProcess backend, IFolderPicker picker, ISettingsDialog settingsDialog)
     {
@@ -56,6 +57,13 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<SourceItemViewModel> Sources { get; } = [];
 
+    /// <summary>会话列表（后端按「最近使用」倒序返回）。</summary>
+    public ObservableCollection<SessionItemViewModel> Sessions { get; } = [];
+
+    /// <summary>当前会话；为 null 表示还没选（启动时会自动建一个）。</summary>
+    [ObservableProperty]
+    public partial SessionItemViewModel? CurrentSession { get; set; }
+
     public ObservableCollection<MessageViewModel> Messages { get; } = [];
 
     /// <summary>流式过程中每次刷新正文都会触发，界面据此把聊天区滚到底。</summary>
@@ -69,6 +77,7 @@ public partial class MainViewModel : ObservableObject
             var baseAddress = await _backend.StartAsync();
             _api = new ApiClient(baseAddress);
             await RefreshAsync();
+            await EnsureSessionsAsync();   // 会话是聊天的前提：没有就建一个，用户打开就能问
             if (Messages.Count == 0)
             {
                 Messages.Add(new MessageViewModel(
@@ -113,6 +122,7 @@ public partial class MainViewModel : ObservableObject
             Health = await _api.GetHealthAsync();
             var rows = await _api.ListSourcesAsync();
             MergeSources(rows);
+            await RefreshSessionsAsync();
             IsReady = true;
             ConfigHint = BuildHint(Health);
             Status = $"库内 {Health.Chunks} 块 / {Health.Sources} 个数据源";
@@ -300,6 +310,272 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    // ---------------------------------------------------------------- 会话
+
+    /// <summary>刷新会话列表：已有行原地更新，新的插入，消失的移除；当前会话尽量保持不变。</summary>
+    private async Task RefreshSessionsAsync()
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        try
+        {
+            var rows = await _api.ListSessionsAsync();
+            var currentId = CurrentSession?.SessionId;
+            // 列表按「最近使用」倒序，这里就按后端给的顺序摆放
+            for (var index = 0; index < rows.Count; index++)
+            {
+                var row = rows[index];
+                var existing = Sessions.FirstOrDefault(item => item.SessionId == row.SessionId);
+                if (existing is null)
+                {
+                    Sessions.Insert(index, new SessionItemViewModel(row));
+                }
+                else
+                {
+                    existing.Update(row);
+                    var from = Sessions.IndexOf(existing);
+                    if (from != index)
+                    {
+                        Sessions.Move(from, index);
+                    }
+                }
+            }
+            foreach (var stale in Sessions.Where(item => rows.All(row => row.SessionId != item.SessionId)).ToList())
+            {
+                Sessions.Remove(stale);
+            }
+            if (currentId is not null)
+            {
+                CurrentSession = Sessions.FirstOrDefault(item => item.SessionId == currentId) ?? Sessions.FirstOrDefault();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "刷新会话列表");
+        }
+    }
+
+    /// <summary>启动时保证至少有一个会话可选（一个都没有就新建一个）。</summary>
+    private async Task EnsureSessionsAsync()
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        try
+        {
+            await RefreshSessionsAsync();
+            if (Sessions.Count == 0)
+            {
+                var created = await _api.CreateSessionAsync();
+                Sessions.Add(new SessionItemViewModel(created));
+            }
+            if (CurrentSession is null)
+            {
+                CurrentSession = Sessions[0];
+            }
+            else
+            {
+                await LoadMessagesAsync(CurrentSession);   // 有可能是刚建的，装载一次消息（空列表）
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "准备会话");
+            Status = $"会话初始化失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>把某个会话的聊天记录装进界面（切换会话/启动时用）。</summary>
+    private async Task LoadMessagesAsync(SessionItemViewModel session)
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        try
+        {
+            var rows = await _api.ListMessagesAsync(session.SessionId);
+            Messages.Clear();
+            foreach (var row in rows)
+            {
+                var message = new MessageViewModel(isUser: row.Role == "user", content: row.Content)
+                {
+                    IsStreaming = false,
+                };
+                if (row.Sources.Count > 0)
+                {
+                    message.SetSources(row.Sources);
+                }
+                Messages.Add(message);
+            }
+            Status = $"会话「{session.Title}」：{rows.Count} 条消息";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "装载会话消息");
+            Status = $"装载会话失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>切换会话：把那个会话的记录换上来（历史在后端，前端只管显示）。</summary>
+    partial void OnCurrentSessionChanged(SessionItemViewModel? oldValue, SessionItemViewModel? newValue)
+    {
+        if (_switchingSession || newValue is null || newValue.SessionId == oldValue?.SessionId)
+        {
+            return;
+        }
+        _ = LoadMessagesSafeAsync(newValue);
+    }
+
+    private async Task LoadMessagesSafeAsync(SessionItemViewModel session)
+    {
+        _switchingSession = true;
+        try
+        {
+            await LoadMessagesAsync(session);
+        }
+        finally
+        {
+            _switchingSession = false;
+        }
+    }
+
+    /// <summary>新建会话并切过去。</summary>
+    [RelayCommand]
+    private async Task NewSessionAsync()
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        try
+        {
+            var created = await _api.CreateSessionAsync();
+            var item = new SessionItemViewModel(created);
+            Sessions.Insert(0, item);
+            _switchingSession = false;
+            CurrentSession = item;
+            Messages.Clear();
+            Status = "已新建会话，直接提问即可（标题会按第一个问题自动生成）";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "新建会话");
+            Status = $"新建会话失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>删除会话：第一次点进入确认态，再点一次才真删（连聊天记录一起）。</summary>
+    [RelayCommand]
+    private async Task DeleteSessionAsync(SessionItemViewModel? item)
+    {
+        if (_api is null || item is null)
+        {
+            return;
+        }
+        if (!item.IsConfirmingDelete)
+        {
+            foreach (var other in Sessions)
+            {
+                other.IsConfirmingDelete = false;   // 同时只允许一行处于确认态
+            }
+            item.IsConfirmingDelete = true;
+            return;
+        }
+
+        try
+        {
+            await _api.DeleteSessionAsync(item.SessionId);
+            var wasCurrent = CurrentSession?.SessionId == item.SessionId;
+            Sessions.Remove(item);
+            Status = $"已删除会话「{item.Title}」";
+            if (wasCurrent)
+            {
+                // 删掉的正是当前会话：切到第一个；一个都不剩就新建一个
+                if (Sessions.Count == 0)
+                {
+                    await NewSessionAsync();
+                }
+                else
+                {
+                    CurrentSession = Sessions[0];
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "删除会话");
+            Status = $"删除会话失败：{ex.Message}";
+            item.IsConfirmingDelete = false;
+        }
+    }
+
+    /// <summary>进入重命名状态（点 ✎ 或双击标题）。</summary>
+    [RelayCommand]
+    private void BeginRename(SessionItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+        item.IsConfirmingDelete = false;
+        item.IsRenaming = true;
+    }
+
+    /// <summary>取消删除确认（点「取消」）。</summary>
+    [RelayCommand]
+    private void CancelDelete(SessionItemViewModel? item)
+    {
+        if (item is not null)
+        {
+            item.IsConfirmingDelete = false;
+        }
+    }
+
+    /// <summary>提交重命名（输入框里回车时调用）。</summary>
+    [RelayCommand]
+    private async Task CommitRenameAsync(SessionItemViewModel? item)
+    {
+        if (_api is null || item is null)
+        {
+            return;
+        }
+        var title = item.Title.Trim();
+        item.IsRenaming = false;
+        if (title.Length == 0)
+        {
+            item.Title = item.Dto.Title;   // 空标题视为放弃
+            return;
+        }
+        try
+        {
+            await _api.RenameSessionAsync(item.SessionId, title);
+            item.Update(item.Dto with { Title = title });
+            Status = $"已重命名为「{title}」";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "重命名会话");
+            item.Title = item.Dto.Title;
+            Status = $"重命名失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>放弃重命名（Esc 或点别处）。</summary>
+    [RelayCommand]
+    private void CancelRename(SessionItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+        item.IsRenaming = false;
+        item.Title = item.Dto.Title;
+    }
+
     /// <summary>打开设置窗口，改完立刻保存并生效（后端会写进 .env，无需重启）。</summary>
     [RelayCommand]
     private async Task OpenSettingsAsync()
@@ -328,19 +604,20 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>清空对话上下文（后端会话里的历史）。</summary>
+    /// <summary>清空当前会话的聊天记录（会话本身保留）。</summary>
     [RelayCommand]
     private async Task ClearContextAsync()
     {
-        if (_api is null)
+        if (_api is null || CurrentSession is null)
         {
             return;
         }
         try
         {
-            var result = await _api.ClearChatAsync();
-            Messages.Add(new MessageViewModel(isUser: false, content: $"（已清空上下文：{result.Cleared} 条历史消息）"));
-            Status = "上下文已清空";
+            var result = await _api.ClearChatAsync(CurrentSession.SessionId);
+            Messages.Clear();
+            Status = $"已清空当前会话（{result.Cleared} 条消息 / {result.Turns} 轮）";
+            await RefreshSessionsAsync();
         }
         catch (Exception ex)
         {
@@ -358,6 +635,14 @@ public partial class MainViewModel : ObservableObject
         {
             return;
         }
+        if (CurrentSession is null)
+        {
+            await NewSessionAsync();          // 兜底：没有会话就先建一个
+            if (CurrentSession is null)
+            {
+                return;
+            }
+        }
 
         Question = "";
         Messages.Add(new MessageViewModel(isUser: true, content: question));
@@ -374,7 +659,7 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            await foreach (var ev in _api.StreamChatAsync(question, _chatCts.Token))
+            await foreach (var ev in _api.StreamChatAsync(question, CurrentSession.SessionId, _chatCts.Token))
             {
                 switch (ev)
                 {
@@ -418,6 +703,7 @@ public partial class MainViewModel : ObservableObject
             _streaming = null;
             _chatCts?.Dispose();
             _chatCts = null;
+            await RefreshSessionsAsync();   // 首问会改标题、会话顺序也会变，这里同步一下
         }
     }
 

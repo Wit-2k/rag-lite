@@ -63,8 +63,33 @@ public sealed record JobResultDto(
 /// <summary>添加数据源的请求体。</summary>
 public sealed record SourceCreateDto(string Path, string? Name = null);
 
-/// <summary>提问请求。</summary>
-public sealed record ChatRequest(string Question);
+/// <summary>一个会话（会话栏里的一行）。</summary>
+public sealed record SessionDto(
+    string SessionId,
+    string Title,
+    string CreatedAt,
+    string UpdatedAt,
+    int MessageCount);
+
+/// <summary>新建会话的请求体（标题留空则由后端用默认名，首问后自动命名）。</summary>
+public sealed record SessionCreateDto(string? Title = null);
+
+/// <summary>重命名会话。</summary>
+public sealed record SessionRenameDto(string Title);
+
+/// <summary>一条聊天记录（切换会话时用它渲染）。</summary>
+public sealed record ChatMessageDto(
+    int MessageId,
+    string Role,
+    string Content,
+    IReadOnlyList<ChatSourceDto> Sources,
+    string CreatedAt);
+
+/// <summary>提问请求（必须带会话 id：历史存库里、按会话取）。</summary>
+public sealed record ChatRequest(string Question, string SessionId);
+
+/// <summary>清空某个会话的消息。</summary>
+public sealed record ChatClearRequest(string SessionId);
 
 /// <summary>当前生效的配置（密钥只有打码提示，没有明文）。</summary>
 public sealed record SettingsDto(
@@ -155,7 +180,14 @@ public sealed record ErrorDto(string Detail);
 [JsonSerializable(typeof(JobDto))]
 [JsonSerializable(typeof(SourceCreateDto))]
 [JsonSerializable(typeof(ChatRequest))]
+[JsonSerializable(typeof(ChatClearRequest))]
 [JsonSerializable(typeof(ChatClearDto))]
+[JsonSerializable(typeof(SessionDto))]
+[JsonSerializable(typeof(IReadOnlyList<SessionDto>))]
+[JsonSerializable(typeof(SessionCreateDto))]
+[JsonSerializable(typeof(SessionRenameDto))]
+[JsonSerializable(typeof(ChatMessageDto))]
+[JsonSerializable(typeof(IReadOnlyList<ChatMessageDto>))]
 [JsonSerializable(typeof(SettingsDto))]
 [JsonSerializable(typeof(SettingsUpdateDto))]
 [JsonSerializable(typeof(ChatFrameDto))]

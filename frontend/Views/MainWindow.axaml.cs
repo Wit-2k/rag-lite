@@ -112,6 +112,57 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog
         return saved ? window.Result : null;
     }
 
+    /// <summary>双击会话标题进入重命名。</summary>
+    private void OnSessionTitleDoubleTapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: SessionItemViewModel item } && _viewModel is not null)
+        {
+            e.Handled = true;
+            if (_viewModel.BeginRenameCommand.CanExecute(item))
+            {
+                _viewModel.BeginRenameCommand.Execute(item);
+            }
+        }
+    }
+
+    /// <summary>会话重命名输入框出现时自动聚焦（让用户可以直接开始打字）。</summary>
+    private void OnRenameBoxAttached(object? sender, Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is TextBox box)
+        {
+            Dispatcher.UIThread.Post(() => box.Focus(), DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>重命名输入框：回车提交、Esc 放弃。</summary>
+    private void OnRenameKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox box || box.Tag is not SessionItemViewModel item)
+        {
+            return;
+        }
+        if (_viewModel is null)
+        {
+            return;
+        }
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            if (_viewModel.CommitRenameCommand.CanExecute(item))
+            {
+                _viewModel.CommitRenameCommand.Execute(item);
+            }
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            if (_viewModel.CancelRenameCommand.CanExecute(item))
+            {
+                _viewModel.CancelRenameCommand.Execute(item);
+            }
+        }
+    }
+
     /// <summary>回车发送；Shift+回车留给以后换行用。</summary>
     private void OnQuestionKeyDown(object? sender, KeyEventArgs e)
     {
