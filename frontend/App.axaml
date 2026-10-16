@@ -10,6 +10,19 @@
     </Application.DataTemplates>
 
     <Application.Styles>
+        <!-- 资源键命名注意（2026-10 逐个在主题字典里核对过）：
+             Avalonia 12 的 Fluent 主题用的是 SystemControl* 那一代命名，**没有** WinUI3 的
+             TextFillColor* / Card* / Layer* / DividerStroke* / SolidBackgroundFillColor* /
+             ApplicationPageBackgroundThemeBrush（AccentButton* 倒是有）。
+             更要紧的是：DynamicResource 找不到键时 Avalonia **不抛异常、不写日志**，只是属性不生效——
+             「能跑起来」不等于「样式生效」。对照关系：
+               TextFillColorPrimary/Secondary/TertiaryBrush -> SystemControlForegroundBaseHigh/BaseMedium/BaseMediumLowBrush
+               CardBackgroundFillColorDefaultBrush          -> SystemControlBackgroundChromeMediumLowBrush
+               CardStrokeColorDefaultBrush / DividerStroke  -> SystemControlForegroundBaseLowBrush
+               LayerFillColorDefaultBrush                   -> SystemControlBackgroundListLowBrush
+               SolidBackgroundFillColorBaseBrush            -> SystemControlBackgroundAltHighBrush
+               ApplicationPageBackgroundThemeBrush / LayerOnMica... -> SystemControlPageBackgroundChromeLowBrush
+        -->
         <FluentTheme />
         <!-- Markdown.Avalonia 的排版样式由控件自己按 MarkdownStyleName 加载（默认 FluentTheme），
              这里不用再 StyleInclude；若以后要换风格，可显式引入
@@ -41,8 +54,8 @@
 
         <!-- 卡片式容器基础样式，营造 Windows Fluent 层次感 -->
         <Style Selector="Border.card">
-            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="14" />

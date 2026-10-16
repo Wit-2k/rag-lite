@@ -12,20 +12,20 @@
         Title="rag-lite — 本地文档问答"
         Width="1180" Height="760" MinWidth="900" MinHeight="600"
         TransparencyLevelHint="Mica,AcrylicBlur"
-        Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
+        Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
 
     <!-- 主布局：左侧资源管理器/侧边栏风格，右侧工作台对话区 -->
     <Grid ColumnDefinitions="320,1,*">
 
         <!-- 左边栏：数据源侧边栏，采用 Fluent Navigation/Sidebar 色彩层次 -->
         <Border Grid.Column="0"
-                Background="{DynamicResource LayerOnMicaBaseAltFillColorDefaultBrush}"
+                Background="{DynamicResource SystemControlPageBackgroundChromeLowBrush}"
                 Padding="16,14">
             <DockPanel>
                 <!-- 顶部操作区 -->
                 <StackPanel DockPanel.Dock="Top" Spacing="10">
                     <TextBlock Text="数据源" FontSize="16" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Content="批量添加目录…"
@@ -37,15 +37,15 @@
                     </StackPanel>
 
                     <!-- 后端准备与状态提示 -->
-                    <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                             BorderThickness="1"
                             CornerRadius="6"
                             Padding="8,6"
                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <TextBlock Text="{Binding Status}"
                                    FontSize="12"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                    TextWrapping="Wrap" />
                     </Border>
                 </StackPanel>
@@ -68,8 +68,8 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:SourceItemViewModel">
                             <!-- 独立卡片外观 -->
-                            <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6"
                                     Padding="12,10">
@@ -77,11 +77,11 @@
                                     <TextBlock Text="{Binding Name}"
                                                FontWeight="SemiBold"
                                                FontSize="13"
-                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}"
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding Subtitle}"
                                                FontSize="12"
-                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
 
                                     <!-- 警告标记：如目录丢失或维度不一致 -->
                                     <Border Background="#1FF59E0B"
@@ -107,7 +107,7 @@
 
                                     <TextBlock Text="{Binding Status}"
                                                FontSize="12"
-                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                                TextWrapping="Wrap"
                                                IsVisible="{Binding HasStatus}" />
 
@@ -129,11 +129,11 @@
 
         <!-- 左右分栏分割线：使用系统边框画刷，与 Mica 融合更自然 -->
         <Border Grid.Column="1"
-                Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                Background="{DynamicResource SystemControlForegroundBaseLowBrush}" />
 
         <!-- 右边栏：问答对话工作台 -->
         <Border Grid.Column="2"
-                Background="{DynamicResource ApplicationPageBackgroundThemeBrush}"
+                Background="{DynamicResource SystemControlPageBackgroundChromeLowBrush}"
                 Padding="16,14">
             <DockPanel>
                 <!-- 对话顶部标题与快捷操作栏 -->
@@ -142,10 +142,10 @@
                         <TextBlock Text="对话"
                                    FontSize="16"
                                    FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
                         <TextBlock Text="{Binding ConfigHint}"
                                    FontSize="12"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                    TextWrapping="Wrap"
                                    IsVisible="{Binding ConfigHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>
@@ -163,8 +163,8 @@
                 <!-- 底部输入栏：Windows 现代卡片输入条 -->
                 <Border DockPanel.Dock="Bottom"
                         Margin="0,12,0,0"
-                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                         BorderThickness="1"
                         CornerRadius="8"
                         Padding="4">
@@ -214,14 +214,14 @@
                                             MaxWidth="860"
                                             CornerRadius="8,8,8,2"
                                             Padding="16,12"
-                                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                            Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                                             BorderThickness="1"
                                             IsVisible="{Binding IsAssistant}">
                                         <StackPanel Spacing="8">
                                             <!-- 参考片段标注小字 -->
-                                            <Border Background="{DynamicResource LayerFillColorDefaultBrush}"
-                                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                            <Border Background="{DynamicResource SystemControlBackgroundListLowBrush}"
+                                                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="4"
                                                     Padding="8,4"
@@ -229,7 +229,7 @@
                                                     IsVisible="{Binding HasSources}">
                                                 <TextBlock Text="{Binding SourcesText}"
                                                            FontSize="11.5"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                                            TextWrapping="Wrap" />
                                             </Border>
 
@@ -239,7 +239,7 @@
                                             <!-- 耗时与 Token 元信息 -->
                                             <TextBlock Text="{Binding Meta}"
                                                        FontSize="11.5"
-                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
                                                        IsVisible="{Binding HasMeta}" />
                                         </StackPanel>
                                     </Border>
