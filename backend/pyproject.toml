@@ -1,0 +1,32 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Wit-2k", email = "skeialo@163.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "chonkie>=1.7.0",
+    "fastapi>=0.143.2",
+    "lancedb>=0.40.0",
+    "openai>=3.31.0",
+    "requests>=2.34.2",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+# 注意：本文件刻意不声明 [build-system]。
+# 本项目是应用而非可分发库；uv 对无构建系统的项目只装依赖、不装自身。
+# 原先的 uv_build 布局要求 backend/src/（与 backend/app/ 不符），
+# 且 [project.scripts] backend = "backend:main" 生成的 backend.exe 指向不存在的模块。
+# 入口统一为：cd backend && uv run python main.py

@@ -1,0 +1,333 @@
+r"""HTTP 接口的测试。
+
+    cd backend && uv run pytest -q tests/test_api.py
+
+用 FastAPI 的 TestClient 打真实的请求/响应栈（含 SSE 帧解析），
+向量库是临时目录里的真库，只有「向量化 / 重排 / 对话」三处外部调用被换成假的。
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api import routes as routes_module
+from app.api.server import create_app
+from app.config import Settings
+from app.core import query as query_module
+from app.core.openrouter import ChatUsage, EmbedResult, EmbedUsage, RerankResult
+from app.core.schema import chunk_row, utc_now
+from app.core.store import Store
+
+DIM = 4
+CHUNKS = [
+    ("研究生国家奖学金奖励标准为博士研究生每生每年 3 万元。", "第三章 奖励标准"),
+    ("学校校徽为圆形，以五个相同单元的人字形图案围合成红棉花的虚形。", "第九章 学校标识"),
+]
+
+
+class FakeChat:
+    """假对话：固定吐两段文本，并记录收到的 messages（用来验证历史是否带上）。"""
+
+    def __init__(self) -> None:
+        self.usage = ChatUsage(prompt_tokens=42, completion_tokens=7, cost_usd=0.00001)
+        self.calls: list[list[dict]] = []
+
+    def send(self, messages: list[dict]):
+        self.calls.append(messages)
+        yield "答"
+        yield "案"
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        root=tmp_path,
+        data_dir=tmp_path,
+        db_uri=str(tmp_path / "lancedb"),
+        api_key="fake-key",
+        embed_dim=DIM,
+    )
+
+
+@pytest.fixture
+def store(settings: Settings) -> Store:
+    store = Store(settings.db_uri, dim=DIM)
+    store.upsert_source(
+        {
+            "source_id": "src_a",
+            "name": "手册.pdf",
+            "path": str(settings.root / "手册.pdf"),
+            "sha256": "abc",
+            "chunk_count": len(CHUNKS),
+            "image_count": 1,
+            "embed_model": "fake",
+            "embed_dim": DIM,
+            "added_at": utc_now(),
+            "embedded_at": utc_now(),
+        }
+    )
+    store.add_chunks(
+        [
+            chunk_row(
+                chunk_id=f"src_a_{index:05d}",
+                source_id="src_a",
+                vector=[1.0, 0.0, 0.0, 0.0],
+                blocking={
+                    "heading": heading,
+                    "text": text,
+                    "kind": "text",
+                    "start": index * 10,
+                    "end": index * 10 + 9,
+                    "char_count": len(text),
+                    "images": ["pic0.jpg"] if index == 0 else [],
+                },
+                rel_path="full.md",
+                embedded_at=utc_now(),
+            )
+            for index, (text, heading) in enumerate(CHUNKS)
+        ]
+    )
+    return store
+
+
+@pytest.fixture
+def chat(monkeypatch: pytest.MonkeyPatch) -> FakeChat:
+    """外部调用全部换假：向量化、重排、对话。"""
+    monkeypatch.setattr(
+        query_module,
+        "embed_texts",
+        lambda texts, **kwargs: EmbedResult(
+            vectors=[[1.0, 0.0, 0.0, 0.0] for _ in texts], usage=EmbedUsage(requests=1), dim=DIM
+        ),
+    )
+    monkeypatch.setattr(
+        query_module,
+        "rerank",
+        lambda query, documents, **kwargs: RerankResult(
+            order=list(range(len(documents))),
+            scores=[0.9 - 0.1 * index for index in range(len(documents))],
+            requests=1,
+            tokens=10,
+            cost_usd=0.00001,
+            seconds=0.01,
+        ),
+    )
+    fake = FakeChat()
+    monkeypatch.setattr(query_module, "ChatStream", lambda **kwargs: fake)
+    return fake
+
+
+@pytest.fixture
+def client(settings: Settings, store: Store, chat: FakeChat) -> TestClient:
+    return TestClient(create_app(settings=settings, store=store))
+
+
+def sse_frames(response) -> list[dict]:
+    """把 SSE 响应体解析成一个个 JSON 帧。"""
+    frames = []
+    for line in response.text.splitlines():
+        if line.startswith("data: "):
+            frames.append(json.loads(line[len("data: ") :]))
+    return frames
+
+
+# ---------------------------------------------------------------- 就绪与数据源
+
+
+def test_health_reports_store_and_config(client: TestClient) -> None:
+    body = client.get("/api/health").json()
+
+    assert body["status"] == "ok"
+    assert body["chunks"] == len(CHUNKS)
+    assert body["sources"] == 1
+    assert body["configured"] is True
+    assert body["embed_dim"] == DIM
+    assert body["chat_model"]
+
+
+def test_health_without_key(tmp_path: Path, store: Store) -> None:
+    settings = Settings(root=tmp_path, data_dir=tmp_path, db_uri=store.db_uri, api_key="", embed_dim=DIM)
+    other = TestClient(create_app(settings=settings, store=store))
+
+    assert other.get("/api/health").json()["configured"] is False
+
+
+def test_list_sources_marks_missing_directory(client: TestClient, settings: Settings) -> None:
+    body = client.get("/api/sources").json()
+
+    assert len(body) == 1
+    assert body[0]["name"] == "手册.pdf"
+    assert body[0]["chunk_count"] == len(CHUNKS)
+    assert body[0]["missing"] is True, "path 下面没有 full.md，应当标为 missing"
+
+    (settings.root / "手册.pdf").mkdir(parents=True, exist_ok=True)
+    (settings.root / "手册.pdf" / "full.md").write_text("# 标题\n\n正文", encoding="utf-8")
+    assert client.get("/api/sources").json()[0]["missing"] is False
+
+
+def test_add_source_rejects_directory_without_full_md(client: TestClient, tmp_path: Path) -> None:
+    response = client.post("/api/sources", json={"path": str(tmp_path / "不存在")})
+
+    assert response.status_code == 400
+    assert "full.md" in response.json()["detail"]
+
+
+def test_add_source_runs_ingest_job(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """添加数据源是异步任务：立刻拿到 job_id，轮询能看到进度与结果。"""
+    source = settings.root / "新论文.pdf"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "full.md").write_text("# 甲\n\n" + "这是一段足够长的正文。" * 20, encoding="utf-8")
+
+    def fake_ingest(path, store, *, api_key, model, dim, on_progress=None, **kwargs):
+        from app.core.ingest import IngestResult
+
+        if on_progress:
+            on_progress(1, 1, "向量化")
+        return IngestResult(
+            source_id="src_new",
+            name=Path(path).name,
+            path=str(path),
+            chunk_count=5,
+            image_count=0,
+            skipped=False,
+            sha256="deadbeef",
+        )
+
+    monkeypatch.setattr(routes_module, "ingest", fake_ingest)
+
+    accepted = client.post("/api/sources", json={"path": str(source)})
+    assert accepted.status_code == 202
+    job_id = accepted.json()["job_id"]
+
+    for _ in range(100):  # 后台线程很快，轮询到结束即可
+        job = client.get(f"/api/jobs/{job_id}").json()
+        if job["state"] != "running":
+            break
+
+    assert job["state"] == "done"
+    assert job["result"]["chunk_count"] == 5
+    assert job["result"]["source_id"] == "src_new"
+
+
+def test_add_source_requires_api_key(client: TestClient, settings: Settings, tmp_path: Path) -> None:
+    from app.api.server import create_app as build
+
+    source = tmp_path / "x.pdf"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "full.md").write_text("# 甲", encoding="utf-8")
+    no_key = replace(settings, api_key="")
+    other = TestClient(build(settings=no_key, store=Store(settings.db_uri, dim=DIM)))
+
+    response = other.post("/api/sources", json={"path": str(source)})
+
+    assert response.status_code == 400
+    assert "OPENROUTER_API_KEY" in response.json()["detail"]
+
+
+def test_delete_source_removes_chunks(client: TestClient, store: Store) -> None:
+    response = client.delete("/api/sources/src_a")
+
+    assert response.status_code == 204
+    assert store.stats() == (0, 0)
+    assert client.get("/api/sources").json() == []
+
+
+def test_delete_unknown_source_404(client: TestClient) -> None:
+    assert client.delete("/api/sources/nope").status_code == 404
+
+
+def test_unknown_job_404(client: TestClient) -> None:
+    assert client.get("/api/jobs/nope").status_code == 404
+
+
+# ---------------------------------------------------------------- 对话（SSE）
+
+
+def test_chat_streams_sources_tokens_done(client: TestClient) -> None:
+    with client.stream("POST", "/api/chat", json={"question": "国奖多少钱？"}) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        response.read()  # 流式响应要先读完才能取 text
+        frames = sse_frames(response)
+
+    assert frames[0]["type"] == "sources"
+    assert frames[0]["items"][0]["name"] == "手册.pdf"
+    assert frames[0]["items"][0]["preview"]
+    assert [frame["type"] for frame in frames[1:-1]] == ["token", "token"]
+    assert "".join(frame["text"] for frame in frames[1:-1]) == "答案"
+    done = frames[-1]
+    assert done["type"] == "done"
+    assert done["usage"]["prompt_tokens"] == 42
+    assert done["seconds"] >= 0
+
+
+def test_chat_keeps_history_and_clear_empties_it(client: TestClient, chat: FakeChat) -> None:
+    client.post("/api/chat", json={"question": "第一问"}).read()
+    client.post("/api/chat", json={"question": "第二问"}).read()
+
+    second_call = chat.calls[-1]
+    assert any(message.get("content") == "第一问" for message in second_call), "第二问应带上第一问的历史"
+
+    cleared = client.post("/api/chat/clear")
+    assert cleared.status_code == 200
+    assert cleared.json() == {"cleared": 4, "turns": 0}
+
+    client.post("/api/chat", json={"question": "第三问"}).read()
+    assert len(chat.calls[-1]) == 2, "清空后只剩 system + 本轮问题"
+
+
+def test_chat_clear_before_any_turn(client: TestClient) -> None:
+    assert client.post("/api/chat/clear").json() == {"cleared": 0, "turns": 0}
+
+
+def test_chat_rejects_empty_question(client: TestClient) -> None:
+    assert client.post("/api/chat", json={"question": ""}).status_code == 422
+
+
+def test_chat_without_key_is_400(tmp_path: Path, store: Store) -> None:
+    settings = Settings(root=tmp_path, data_dir=tmp_path, db_uri=store.db_uri, api_key="", embed_dim=DIM)
+    client = TestClient(create_app(settings=settings, store=store))
+
+    response = client.post("/api/chat", json={"question": "问"})
+
+    assert response.status_code == 400
+    assert "OPENROUTER_API_KEY" in response.json()["detail"]
+
+
+def test_chat_error_is_reported_as_sse_frame(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """上游出错时要发一个 error 帧，而不是让前端只看到断流。"""
+
+    def boom(self, question):
+        raise RuntimeError("上游炸了")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(query_module.ChatSession, "ask", boom)
+
+    frames = sse_frames(client.post("/api/chat", json={"question": "问"}))
+
+    assert frames[-1]["type"] == "error"
+    assert "上游炸了" in frames[-1]["message"]
+
+
+# ---------------------------------------------------------------- 入口
+
+
+def test_free_port_skips_busy_ports() -> None:
+    """端口被占用时要顺延（前端拿到的 port 以握手行为准）。"""
+    import socket
+
+    from main import free_port
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy:
+        busy.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        busy.bind(("127.0.0.1", 0))
+        port = busy.getsockname()[1]
+        busy.listen(1)
+
+        assert free_port("127.0.0.1", port) != port
+        assert free_port("127.0.0.1", port) > port

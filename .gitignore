@@ -1,0 +1,111 @@
+# ==========================================
+# 0. 敏感信息与本地配置（严防 API Key 泄露）
+# ==========================================
+.env
+.env.*
+!.env.example
+config.local.json
+secrets.json
+
+# ==========================================
+# 1. Python & 后端环境
+# ==========================================
+# 字节码与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 虚拟环境 (venv, uv, conda, poetry 等)
+.venv/
+venv/
+ENV/
+env/
+.uv/
+
+# 包管理与分发临时文件
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 测试与代码质量检查
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# 分块/向量化报告等派生产物（可随时重跑生成，体积大）
+backend/tests/out/
+
+# ==========================================
+# 2. 向量数据库与本地数据 (LanceDB / MinerU 产物)
+# ==========================================
+# 本地向量库落盘文件（体积大且属于运行时生成）
+backend/data/lancedb/
+backend/data/*.lance/
+*.lance/
+
+# 本地上传的临时文档、解析缓存
+backend/data/uploads/
+backend/data/cache/
+
+# ==========================================
+# 3. .NET / C# / Avalonia
+# ==========================================
+# 编译输出目录
+[Bb]in/
+[Oo]bj/
+
+# Rider / Visual Studio 缓存与用户配置
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# NuGet 包缓存
+*.nupkg
+packages/
+project.lock.json
+project.assets.json
+
+# Crash dumps & 诊断日志
+*.stackdump
+*.log
+
+# ==========================================
+# 4. 客户端打包产物 (PyInstaller / Publish)
+# ==========================================
+# PyInstaller 输出
+*.spec
+dist_backend/
+build_backend/
+
+# 便携包发布产物
+release/
+publish/
+*.zip
+*.7z
+
+# ==========================================
+# 5. 操作系统与通用编辑器
+# ==========================================
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code 配置（保留 extensions.json 推荐，忽略个人状态）
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
