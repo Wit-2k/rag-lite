@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.jobs import BusyError, Job
+from app.api.jobs import DuplicateError, Job
 from app.api.models import (
     ChatClearOut,
     ChatIn,
@@ -30,6 +30,7 @@ from app.config import EDITABLE_FIELDS, ENV_NAMES, mask_secret, update_env_file
 from app.core.ingest import ingest, remove_source
 from app.core.openrouter import ALLOWED_DIMS
 from app.core.query import ChatSession, DoneEvent, RetrievalEvent, TokenEvent
+from app.core.schema import source_id_for
 from app.core.store import Store, StoreError
 
 router = APIRouter(prefix="/api")
@@ -100,10 +101,11 @@ def list_sources(request: Request) -> list[SourceOut]:
 
 @router.post("/sources", response_model=JobAcceptedOut, status_code=202, responses={400: {"model": ErrorOut}, 409: {"model": ErrorOut}})
 def add_source(payload: SourceCreateIn, request: Request) -> JobAcceptedOut:
-    """登记一个 MinerU 产物目录并开始导入（后台任务，立刻返回 job_id）。"""
+    """登记一个 MinerU 产物目录并开始导入（后台任务，立刻返回 job_id；超过并发上限则排队）。"""
     settings = request.app.state.settings
     store = get_store(request)
     path = Path(payload.path)
+    resolved = path.resolve()
 
     if not (path / "full.md").is_file():
         raise HTTPException(status_code=400, detail=f"目录里没有 full.md：{path}（请先在 MinerU 客户端完成解析）")
@@ -112,7 +114,7 @@ def add_source(payload: SourceCreateIn, request: Request) -> JobAcceptedOut:
 
     def work(job: Job) -> dict:
         result = ingest(
-            path,
+            resolved,
             store,
             api_key=settings.embed_key,
             model=settings.embed_model,
@@ -137,8 +139,10 @@ def add_source(payload: SourceCreateIn, request: Request) -> JobAcceptedOut:
         }
 
     try:
-        job = request.app.state.jobs.start("ingest", work)
-    except BusyError as exc:
+        # 去重键用「按目录算出的数据源 id」：同一个目录重复点、或在批量清单里重复选到，
+        # 第二次直接 409，而不是两路并发「先删后写」把两代分块留在库里。
+        job = request.app.state.jobs.start("ingest", work, dedup_key=source_id_for(resolved))
+    except DuplicateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JobAcceptedOut(job_id=job.id, kind=job.kind)
 

@@ -36,15 +36,19 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog
 
     private void ScrollToEnd() => Dispatcher.UIThread.Post(() => ChatScroll.ScrollToEnd(), DispatcherPriority.Background);
 
-    /// <summary>选择 MinerU 产物目录（IFolderPicker 的实现）。</summary>
-    public async Task<string?> PickFolderAsync(string title)
+    /// <summary>选择 MinerU 产物目录，支持一次多选（IFolderPicker 的实现）。</summary>
+    public async Task<IReadOnlyList<string>> PickFoldersAsync(string title)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             Title = title,
-            AllowMultiple = false,
+            AllowMultiple = true,
         });
-        return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+        return folders
+            .Select(folder => folder.TryGetLocalPath())
+            .Where(path => !string.IsNullOrEmpty(path))
+            .Select(path => path!)
+            .ToList();
     }
 
     /// <summary>弹出设置窗口（ISettingsDialog 的实现）。对话框不做 I/O，保存交给 ViewModel。</summary>

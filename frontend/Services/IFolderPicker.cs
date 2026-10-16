@@ -7,8 +7,8 @@ namespace frontend.Services;
 
 public interface IFolderPicker
 {
-    /// <summary>弹出「选择文件夹」对话框；用户取消时返回 null。</summary>
-    Task<string?> PickFolderAsync(string title);
+    /// <summary>弹出「选择文件夹」对话框，可多选；用户取消时返回空列表。</summary>
+    Task<IReadOnlyList<string>> PickFoldersAsync(string title);
 }
 
 

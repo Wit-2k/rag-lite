@@ -52,4 +52,12 @@ public partial class SourceItemViewModel : ObservableObject
         OnPropertyChanged(nameof(Badge));
         OnPropertyChanged(nameof(HasBadge));
     }
+
+    /// <summary>导入成功后，把占位 id（pending:jobId）换成后端真正的数据源 id。
+    /// 换完之后刷新就会「原地更新这一行」：既不会多出一行，也不会留下删不掉的占位行
+    /// （占位行的 id 后端不认识，移除按钮对它是无效的）。Status 里的「已跳过」等提示会保留。</summary>
+    public void AdoptSourceId(string sourceId)
+    {
+        Dto = Dto with { SourceId = sourceId };
+    }
 }

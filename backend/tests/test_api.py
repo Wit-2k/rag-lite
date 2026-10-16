@@ -9,6 +9,8 @@ r"""HTTP 接口的测试。
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from app.api.server import create_app
 from app.config import Settings
 from app.core import query as query_module
 from app.core.openrouter import ChatUsage, EmbedResult, EmbedUsage, RerankResult
-from app.core.schema import chunk_row, utc_now
+from app.core.schema import chunk_row, source_id_for, utc_now
 from app.core.store import Store
 
 DIM = 4
@@ -232,6 +234,84 @@ def test_add_source_requires_api_key(client: TestClient, settings: Settings, tmp
 
     assert response.status_code == 400
     assert "OPENROUTER_API_KEY" in response.json()["detail"]
+
+
+def blocking_ingest(gate: threading.Event, started: list[str]):
+    """假的导入：先记一笔名字，然后卡在 gate 上——方便观察「谁在跑、谁在排队」。"""
+
+    def fake(path, store, *, api_key, model, dim, on_progress=None, **kwargs):
+        from app.core.ingest import IngestResult
+
+        resolved = Path(path).resolve()
+        started.append(resolved.name)
+        gate.wait(timeout=5)
+        if on_progress:
+            on_progress(1, 1, "向量化")
+        return IngestResult(
+            source_id=source_id_for(resolved),
+            name=resolved.name,
+            path=str(resolved),
+            chunk_count=1,
+            image_count=0,
+            skipped=False,
+            sha256="deadbeef",
+        )
+
+    return fake
+
+
+def make_source(root: Path, name: str) -> Path:
+    source = root / name
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "full.md").write_text(f"# {name}\n\n" + "这是一段足够长的正文。" * 20, encoding="utf-8")
+    return source
+
+
+def test_add_same_source_twice_conflicts(
+    client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同一个目录重复导入（连点两次、批量清单里重复选到）→ 409，不是两路并发写库。"""
+    gate = threading.Event()
+    monkeypatch.setattr(routes_module, "ingest", blocking_ingest(gate, []))
+    source = make_source(settings.root, "同一份.pdf")
+
+    first = client.post("/api/sources", json={"path": str(source)})
+    second = client.post("/api/sources", json={"path": str(source)})
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+    assert "已经在导入队列里" in second.json()["detail"]
+    gate.set()
+
+
+def test_more_than_limit_queues_instead_of_rejecting(
+    settings: Settings, store: Store, chat: FakeChat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """超过并发上限的目录排队，而不是直接报错；放行后全部跑完。"""
+    gate = threading.Event()
+    started: list[str] = []
+    monkeypatch.setattr(routes_module, "ingest", blocking_ingest(gate, started))
+
+    one_at_a_time = replace(settings, max_parallel_imports=1)
+    client = TestClient(create_app(settings=one_at_a_time, store=store))
+    sources = [make_source(settings.root, f"目录{index}.pdf") for index in range(3)]
+
+    jobs = [client.post("/api/sources", json={"path": str(source)}) for source in sources]
+    assert [response.status_code for response in jobs] == [202, 202, 202]
+    job_ids = [response.json()["job_id"] for response in jobs]
+
+    states = [client.get(f"/api/jobs/{job_id}").json()["state"] for job_id in job_ids]
+    assert states == ["running", "queued", "queued"], f"上限 1 时应只有一个在跑：{states}"
+    assert started == ["目录0.pdf"], "排队的不该提前开跑"
+
+    gate.set()
+    for _ in range(200):  # 放行后等它们跑完
+        states = [client.get(f"/api/jobs/{job_id}").json()["state"] for job_id in job_ids]
+        if all(state == "done" for state in states):
+            break
+        time.sleep(0.01)
+    assert states == ["done", "done", "done"]
+    assert sorted(started) == ["目录0.pdf", "目录1.pdf", "目录2.pdf"]
 
 
 def test_delete_source_removes_chunks(client: TestClient, store: Store) -> None:

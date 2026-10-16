@@ -138,13 +138,19 @@ public partial class MainViewModel : ObservableObject
                 existing.Update(row);
             }
         }
-        foreach (var stale in Sources.Where(item => rows.All(row => row.SourceId != item.Dto.SourceId)).ToList())
+        // 只清理「后端列表里已经没有」的行。pending: 开头的是正在导入的占位行，
+        // 它要等导入成功后才会换成真正的数据源 id（见 WatchJobAsync），所以不能在这里删掉——
+        // 多个目录并发导入时，任何一行的刷新都会走到这里。
+        foreach (var stale in Sources.Where(item =>
+                     !item.Dto.SourceId.StartsWith("pending:", StringComparison.Ordinal)
+                     && rows.All(row => row.SourceId != item.Dto.SourceId)).ToList())
         {
             Sources.Remove(stale);
         }
     }
 
-    /// <summary>选一个 MinerU 产物目录并导入，期间轮询进度。</summary>
+    /// <summary>选若干 MinerU 产物目录并导入：每个目录一个后台任务，一起并发跑。
+    /// 后端同时最多跑 MAX_PARALLEL_IMPORTS 个（默认 3），多出来的排队。</summary>
     [RelayCommand]
     private async Task AddSourceAsync()
     {
@@ -152,50 +158,81 @@ public partial class MainViewModel : ObservableObject
         {
             return;
         }
-        var path = await _picker.PickFolderAsync("选择 MinerU 产物目录（里面要有 full.md）");
-        if (string.IsNullOrWhiteSpace(path))
+        var paths = await _picker.PickFoldersAsync("选择 MinerU 产物目录（可多选，里面要有 full.md）");
+        if (paths.Count == 0)
         {
             return;
         }
 
-        SourceItemViewModel? item = null;
-        try
+        var jobs = new List<(string JobId, SourceItemViewModel Item)>();
+        var rejected = new List<string>();
+        foreach (var path in paths)
         {
-            var jobId = await _api.AddSourceAsync(path);
-            item = new SourceItemViewModel(new SourceDto(
-                SourceId: $"pending:{jobId}", Name: Path.GetFileName(path), Path: path, ChunkCount: 0, ImageCount: 0,
-                AddedAt: "", EmbeddedAt: "", Missing: false, EmbedModel: "", EmbedDim: 0, Stale: false))
+            try
             {
-                IsImporting = true,
-                Status = "分块中…",
-            };
-            Sources.Add(item);
-            await WatchJobAsync(jobId, item);
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error(ex, "添加数据源");
-            Status = $"添加失败：{ex.Message}";
-            if (item is not null)
-            {
-                item.IsImporting = false;
-                item.Status = $"失败：{ex.Message}";
+                var jobId = await _api.AddSourceAsync(path);
+                // 先在列表里放一行占位（id 用 pending:jobId），后端一返回 job_id 就能看见「排队中」
+                var item = new SourceItemViewModel(new SourceDto(
+                    SourceId: $"pending:{jobId}", Name: Path.GetFileName(path), Path: path, ChunkCount: 0,
+                    ImageCount: 0, AddedAt: "", EmbeddedAt: "", Missing: false, EmbedModel: "", EmbedDim: 0,
+                    Stale: false))
+                {
+                    IsImporting = true,
+                    Status = "排队中…",
+                };
+                Sources.Add(item);
+                jobs.Add((jobId, item));
             }
+            catch (Exception ex)
+            {
+                // 单个目录被拒（比如已经在导入队列里、或者没有 full.md）不影响其余目录
+                AppLog.Error(ex, "添加数据源");
+                rejected.Add($"{Path.GetFileName(path)}：{ex.Message}");
+            }
+        }
+
+        if (jobs.Count == 0)
+        {
+            Status = $"没能添加：{string.Join("；", rejected)}";
+            return;
+        }
+
+        Status = jobs.Count == 1 ? "正在导入…" : $"正在导入 {jobs.Count} 个目录…";
+        // 每个任务各跑一个轮询循环，彼此不阻塞：任务在排队时，它们就是一起等
+        var finished = await Task.WhenAll(jobs.Select(job => WatchJobAsync(job.JobId, job.Item)));
+        await RefreshAsync();
+
+        var ok = finished.Count(done => done);
+        Status = ok == finished.Length
+            ? $"导入完成：{ok} 个目录"
+            : $"导入结束：成功 {ok} 个，失败 {finished.Length - ok} 个";
+        if (rejected.Count > 0)
+        {
+            Status += $"；另有 {rejected.Count} 个没加进来：{string.Join("；", rejected)}";
         }
     }
 
-    /// <summary>轮询导入任务直到结束（后端是异步任务，接口立刻返回 job_id）。</summary>
-    private async Task WatchJobAsync(string jobId, SourceItemViewModel item)
+    /// <summary>轮询一个导入任务直到结束，返回是否成功。
+    /// 多个目录同时导入时这个方法会被并发跑多份，所以只碰自己那一行 item，不写共用的 Status。</summary>
+    private async Task<bool> WatchJobAsync(string jobId, SourceItemViewModel item)
     {
         while (_api is not null)
         {
             var job = await _api.GetJobAsync(jobId);
             item.Progress = job.Total <= 0 ? 0 : 100.0 * job.Done / job.Total;
 
+            if (job.State == "queued")
+            {
+                item.IsImporting = true;
+                item.Status = "排队中…";
+                await Task.Delay(500);
+                continue;
+            }
             if (job.State == "running")
             {
                 item.IsImporting = true;
-                item.Status = $"{job.Message}（{job.Done}/{job.Total}）";
+                var stage = job.Message.Length == 0 ? "准备中" : job.Message;
+                item.Status = $"{stage}（{job.Done}/{job.Total}）";
                 await Task.Delay(500);
                 continue;
             }
@@ -204,20 +241,23 @@ public partial class MainViewModel : ObservableObject
             if (job.State == "failed")
             {
                 item.Status = $"失败：{job.Error}";
-                Status = $"导入失败：{job.Error}";
+                return false;
             }
-            else
+
+            var result = job.Result;
+            item.Status = result is { Skipped: true }
+                ? $"✓ 已跳过（{result.Reason}），库里 {result.ChunkCount} 块"
+                : $"✓ 导入完成：{result?.ChunkCount ?? 0} 块，{result?.ImageCount ?? 0} 块含图，"
+                  + $"${result?.CostUsd ?? 0:0.0000}，{result?.Seconds ?? 0:0.0}s";
+            if (result is not null)
             {
-                var result = job.Result;
-                item.Status = result is { Skipped: true }
-                    ? $"✓ 已跳过（{result.Reason}），库里 {result.ChunkCount} 块"
-                    : $"✓ 导入完成：{result?.ChunkCount ?? 0} 块，{result?.ImageCount ?? 0} 块含图，"
-                      + $"${result?.CostUsd ?? 0:0.0000}，{result?.Seconds ?? 0:0.0}s";
-                Status = item.Status;
+                // 占位 id 换成后端真正的数据源 id：随后的刷新会「原地更新这一行」，
+                // 而不是又添一行、把占位行永远留在列表里（那一行是删不掉的）
+                item.AdoptSourceId(result.SourceId);
             }
-            await RefreshAsync();
-            return;
+            return true;
         }
+        return false;
     }
 
     /// <summary>移除数据源（连同它的分块）。</summary>

@@ -63,17 +63,20 @@ ENV_NAMES: dict[str, str] = {
     "host": "RAGLITE_HOST",
     "port": "RAGLITE_PORT",
     "db_uri": "RAGLITE_DB_URI",
+    "max_parallel_imports": "MAX_PARALLEL_IMPORTS",
 }
 
-INT_FIELDS = {"embed_dim", "retrieve_top_k", "context_n", "port"}
+INT_FIELDS = {"embed_dim", "retrieve_top_k", "context_n", "port", "max_parallel_imports"}
 
 # 密钥类字段：回给前端时一律打码，永不回传明文
 SECRET_FIELDS = {"api_key", "embed_api_key", "rerank_api_key", "chat_api_key"}
 
 # 允许前端改的字段（顺序即界面上的顺序）。root/data_dir/db_uri/host/port 不在其中：
 # 它们决定「库在哪」，改它们等于换一个库，属于命令行/文件的活。
+# max_parallel_imports 也不在其中：它在启动时装配进任务队列，属于「服务怎么跑」的参数，
+# 改了要重启才生效——与其在界面上装作能立刻生效，不如只留 .env / 环境变量这一条路。
 EDITABLE_FIELDS = tuple(
-    name for name in ENV_NAMES if name not in {"host", "port", "db_uri"}
+    name for name in ENV_NAMES if name not in {"host", "port", "db_uri", "max_parallel_imports"}
 )
 
 
@@ -111,6 +114,11 @@ class Settings:
     # —— 服务 ——
     host: str = "127.0.0.1"
     port: int = 17650
+
+    # —— 导入并发 ——
+    # 同时导入几个目录。分块是 CPU 活、向量化是网络等待，3 路并发能把「等 API」的时间叠起来；
+    # 调太大反而容易撞上游速率限制（请求会退避重试，可能更慢）。
+    max_parallel_imports: int = 3
 
     def __post_init__(self) -> None:
         # db_uri 留空就跟着 data_dir 走，这样只改 data_dir 也能生效（frozen 所以用 object.__setattr__）

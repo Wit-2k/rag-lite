@@ -41,7 +41,7 @@ def create_app(
     )
     app.state.settings = settings
     app.state.store = store or Store(settings.db_uri, dim=settings.embed_dim)
-    app.state.jobs = JobRegistry()
+    app.state.jobs = JobRegistry(limit=settings.max_parallel_imports)
     app.state.chat = None  # 首次提问时才建会话（这样没配密钥也能正常启动）
     app.include_router(router)
     return app
