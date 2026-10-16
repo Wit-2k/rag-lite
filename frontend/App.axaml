@@ -5,6 +5,18 @@
              RequestedThemeVariant="Default">
              <!-- "Default" 跟随系统主题；也可改成 "Dark" / "Light" -->
 
+    <Application.Resources>
+        <!-- 本项目自己的调色板。**刻意不用主题资源键**：一是避免上一轮那种「键名不存在 → 静默失效」，
+             二是这套浅色/奶白是固定取向，不必跟随系统深浅色主题变来变去。 -->
+        <SolidColorBrush x:Key="RagWhite">#FFFFFFFF</SolidColorBrush>       <!-- 纯白：窗口与对话区 -->
+        <SolidColorBrush x:Key="RagSurface">#FFFAFAFA</SolidColorBrush>     <!-- 极浅灰：侧栏、卡片内的小块 -->
+        <SolidColorBrush x:Key="RagHairline">#FFE8E8E8</SolidColorBrush>    <!-- 浅灰描边：卡片、分隔线 -->
+        <SolidColorBrush x:Key="RagCream">#FFFFFDF6</SolidColorBrush>       <!-- 奶白：按钮底 -->
+        <SolidColorBrush x:Key="RagCreamHover">#FFFFF8E8</SolidColorBrush>  <!-- 奶白·悬停 -->
+        <SolidColorBrush x:Key="RagCreamPressed">#FFFBF0D8</SolidColorBrush><!-- 奶白·按下 -->
+        <SolidColorBrush x:Key="RagButtonBorder">#FFE0E0E0</SolidColorBrush><!-- 按钮的浅灰边框 -->
+    </Application.Resources>
+
     <Application.DataTemplates>
         <local:ViewLocator />
     </Application.DataTemplates>
@@ -35,7 +47,22 @@
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI, -apple-system, sans-serif" />
         </Style>
 
-        <!-- Accent 主操作按钮样式（与 Windows 11 系统主题强调色保持协调） -->
+        <!-- 所有按钮默认底色：奶白 + 浅灰边框（强调色按钮在后面单独覆盖，顺序不能反） -->
+        <Style Selector="Button">
+            <Setter Property="Background" Value="{DynamicResource RagCream}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource RagButtonBorder}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource RagCreamHover}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource RagButtonBorder}" />
+        </Style>
+        <Style Selector="Button:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource RagCreamPressed}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource RagButtonBorder}" />
+        </Style>
+
+        <!-- Accent 主操作按钮样式（强调色，保持与系统强调色协调） -->
         <Style Selector="Button.accent">
             <Setter Property="Background" Value="{DynamicResource AccentButtonBackground}" />
             <Setter Property="Foreground" Value="{DynamicResource AccentButtonForeground}" />
