@@ -13,6 +13,7 @@ from typing import Callable
 from fastapi import FastAPI
 
 from app.api.jobs import JobRegistry
+from app.api.reload import env_stamp, maybe_reload_settings
 from app.api.routes import router
 from app.config import Settings
 from app.core.store import Store
@@ -43,6 +44,14 @@ def create_app(
     app.state.store = store or Store(settings.db_uri, dim=settings.embed_dim)
     app.state.jobs = JobRegistry(limit=settings.max_parallel_imports)
     app.state.chat = None  # 首次提问时才建会话（这样没配密钥也能正常启动）
+    app.state.env_stamp = env_stamp(settings.root)  # 记住已加载的 .env 版本，变了就热重载
+
+    @app.middleware("http")
+    async def reload_settings_if_env_changed(request, call_next):
+        # 手工改过 .env 就重新读一遍（一次 stat 的开销），免得用户得重启程序
+        maybe_reload_settings(request.app)
+        return await call_next(request)
+
     app.include_router(router)
     return app
 

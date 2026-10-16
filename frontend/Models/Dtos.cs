@@ -20,7 +20,8 @@ public sealed record HealthDto(
     string RerankBaseUrl,
     string ChatModel,
     string ChatBaseUrl,
-    string DataDir);
+    string DataDir,
+    string EnvFile);
 
 /// <summary>一个数据源（MinerU 产物目录）。</summary>
 public sealed record SourceDto(

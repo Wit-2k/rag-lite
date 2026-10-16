@@ -129,7 +129,9 @@ public partial class MainViewModel : ObservableObject
         var hints = new List<string>();
         if (!health.Configured)
         {
-            hints.Add($"还没有配密钥（缺 {string.Join("、", health.MissingKeys)}）：请在 backend/.env 填 OPENROUTER_API_KEY 后重启");
+            // 路径不能用写死的 backend/.env：便携版的 .env 在便携根，源码运行才在 backend/（由后端告知）
+            hints.Add($"还没有配密钥（缺 {string.Join("、", health.MissingKeys)}）："
+                      + $"点右上角「设置」填，或写进 {health.EnvFile}——写完会自动生效，不用重启");
         }
         if (health.SourcesStale > 0)
         {

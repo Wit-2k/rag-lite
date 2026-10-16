@@ -22,6 +22,7 @@ class HealthOut(BaseModel):
     chat_model: str
     chat_base_url: str
     data_dir: str
+    env_file: str  # 该改哪个 .env：便携版是便携根、源码运行是 backend/——别让用户猜
 
 
 class SourceOut(BaseModel):

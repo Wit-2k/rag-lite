@@ -91,6 +91,7 @@ def health(request: Request) -> HealthOut:
         chat_model=settings.chat_model,
         chat_base_url=settings.chat_base_url,
         data_dir=str(settings.data_dir),
+        env_file=str(env_file_for(settings)),
     )
 
 
@@ -110,7 +111,11 @@ def add_source(payload: SourceCreateIn, request: Request) -> JobAcceptedOut:
     if not (path / "full.md").is_file():
         raise HTTPException(status_code=400, detail=f"目录里没有 full.md：{path}（请先在 MinerU 客户端完成解析）")
     if not settings.configured:
-        raise HTTPException(status_code=400, detail="还没有配置 OPENROUTER_API_KEY，无法向量化（见 backend/.env.example）")
+        raise HTTPException(
+            status_code=400,
+            detail=f"还没有配置 OPENROUTER_API_KEY，无法向量化："
+                   f"在界面右上角「设置」里填，或写进 {env_file_for(settings)}（写完会自动生效，不用重启）",
+        )
 
     def work(job: Job) -> dict:
         result = ingest(
