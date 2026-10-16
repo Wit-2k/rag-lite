@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject
     private readonly BackendProcess _backend;
     private readonly IFolderPicker _picker;
     private readonly ISettingsDialog _settingsDialog;
+    private readonly IGroupsDialog _groupsDialog;
     private readonly StringBuilder _pending = new();
     private readonly Stopwatch _sinceFlush = Stopwatch.StartNew();
 
@@ -29,11 +30,13 @@ public partial class MainViewModel : ObservableObject
     private bool _trayHintShown;
     private bool _switchingSession;   // 切换会话时装载消息，避免与列表刷新互相触发
 
-    public MainViewModel(BackendProcess backend, IFolderPicker picker, ISettingsDialog settingsDialog)
+    public MainViewModel(
+        BackendProcess backend, IFolderPicker picker, ISettingsDialog settingsDialog, IGroupsDialog groupsDialog)
     {
         _backend = backend;
         _picker = picker;
         _settingsDialog = settingsDialog;
+        _groupsDialog = groupsDialog;
     }
 
     [ObservableProperty]
@@ -56,6 +59,37 @@ public partial class MainViewModel : ObservableObject
     public partial HealthDto? Health { get; set; }
 
     public ObservableCollection<SourceItemViewModel> Sources { get; } = [];
+
+    /// <summary>左栏实际显示的数据源（= Sources 按分组筛选后的结果）。
+    /// 列表绑定的是它，筛掉的行走的是「从集合里拿掉」，不会留在布局里占空位。</summary>
+    public ObservableCollection<SourceItemViewModel> SourcesView { get; } = [];
+
+    /// <summary>所有数据源分组（后端按名字排，带成员数）。</summary>
+    public ObservableCollection<GroupDto> Groups { get; } = [];
+
+    /// <summary>左栏顶部「分组」筛选下拉的选项。</summary>
+    public ObservableCollection<GroupScopeOption> GroupFilters { get; } = [];
+
+    /// <summary>当前筛选条件（默认「全部数据源」）。只影响左栏显示什么，不影响检索。</summary>
+    [ObservableProperty]
+    public partial GroupScopeOption? SelectedGroupFilter { get; set; }
+
+    /// <summary>对话区「检索范围」下拉的选项（绑定当前会话）。</summary>
+    public ObservableCollection<GroupScopeOption> ScopeOptions { get; } = [];
+
+    /// <summary>当前会话的检索范围（切换会话时会跟着变）。</summary>
+    [ObservableProperty]
+    public partial GroupScopeOption? SelectedScope { get; set; }
+
+    /// <summary>当前检索范围为空分组时的提醒（例如「该分组里还没有数据源」）。</summary>
+    [ObservableProperty]
+    public partial string ScopeWarning { get; set; } = "";
+
+    /// <summary>筛选后一个数据源都没显示时的提示。</summary>
+    [ObservableProperty]
+    public partial string SourceFilterHint { get; set; } = "";
+
+    private bool _syncingScope;   // 程序化改下拉选中项时，别当成用户操作去调接口
 
     /// <summary>会话列表（后端按「最近使用」倒序返回）。</summary>
     public ObservableCollection<SessionItemViewModel> Sessions { get; } = [];
@@ -120,6 +154,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             Health = await _api.GetHealthAsync();
+            await RefreshGroupsAsync();
             var rows = await _api.ListSourcesAsync();
             MergeSources(rows);
             await RefreshSessionsAsync();
@@ -160,7 +195,7 @@ public partial class MainViewModel : ObservableObject
             var existing = Sources.FirstOrDefault(item => item.Dto.SourceId == row.SourceId);
             if (existing is null)
             {
-                Sources.Add(new SourceItemViewModel(row));
+                Sources.Add(new SourceItemViewModel(row, SaveSourceGroupsAsync));
             }
             else
             {
@@ -176,6 +211,205 @@ public partial class MainViewModel : ObservableObject
         {
             Sources.Remove(stale);
         }
+        SyncSourceGroups();
+    }
+
+    // ---------------------------------------------------------------- 分组
+
+    /// <summary>重读分组列表，并把两个下拉（左栏筛选、对话区检索范围）对齐过去。</summary>
+    private async Task RefreshGroupsAsync()
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        var rows = await _api.ListGroupsAsync();
+        Groups.Clear();
+        foreach (var row in rows)
+        {
+            Groups.Add(row);
+        }
+        RebuildScopeOptions();
+        SyncSourceGroups();
+    }
+
+    /// <summary>用最新的分组列表重建两个下拉的选项，尽量保住用户当前选的那一项。</summary>
+    private void RebuildScopeOptions()
+    {
+        // 记住用户原来选的是哪一项（种类 + 分组 id），重建后尽量选回同一项
+        var previous = SelectedGroupFilter;
+        GroupFilters.Clear();
+        foreach (var option in GroupScopeOption.Build(Groups, includeUngrouped: true))
+        {
+            GroupFilters.Add(option);
+        }
+        SelectedGroupFilter = GroupFilters.FirstOrDefault(option =>
+                                option.Kind == (previous?.Kind ?? GroupScopeKind.All)
+                                && option.GroupId == previous?.GroupId)
+                            ?? GroupFilters[0];
+
+        var scopeId = SelectedScope?.GroupId;
+        ScopeOptions.Clear();
+        foreach (var option in GroupScopeOption.Build(Groups, includeUngrouped: false))
+        {
+            ScopeOptions.Add(option);
+        }
+        var current = CurrentSession?.Dto.GroupId;
+        var matching = ScopeOptions.FirstOrDefault(option => option.GroupId == current) ?? ScopeOptions[0];
+        _syncingScope = true;
+        try
+        {
+            SelectedScope = matching;
+        }
+        finally
+        {
+            _syncingScope = false;
+        }
+        UpdateScopeWarning();
+    }
+
+    /// <summary>把每行的勾选清单与「分组：…」文字对齐到最新的分组集合和成员关系。</summary>
+    private void SyncSourceGroups()
+    {
+        foreach (var item in Sources)
+        {
+            item.SyncGroupToggles(Groups);
+        }
+        ApplyGroupFilter();
+    }
+
+    /// <summary>左栏按分组筛选：只改显示，不动数据（也不重建每个卡片，避免闪烁）。</summary>
+    private void ApplyGroupFilter()
+    {
+        var filter = SelectedGroupFilter ?? GroupFilters.FirstOrDefault();
+        // 正在导入的占位行始终显示（用户得看得见进度）
+        var wanted = Sources
+            .Where(item => item.Dto.SourceId.StartsWith("pending:", StringComparison.Ordinal)
+                           || filter is null
+                           || filter.Matches(item.Dto))
+            .ToList();
+
+        // 导入期间每 500ms 刷新一次：可见集合没变就别动，免得列表反复重建
+        if (!wanted.SequenceEqual(SourcesView))
+        {
+            SourcesView.Clear();
+            foreach (var item in wanted)
+            {
+                SourcesView.Add(item);
+            }
+        }
+        SourceFilterHint = wanted.Count == 0 ? "这个筛选条件下没有数据源" : "";
+    }
+
+    partial void OnSelectedGroupFilterChanged(GroupScopeOption? value) => ApplyGroupFilter();
+
+    /// <summary>会话的检索范围变了（下拉里选的）：存到后端，并把这一行的备注改过来。</summary>
+    partial void OnSelectedScopeChanged(GroupScopeOption? value)
+    {
+        if (_syncingScope || value is null || CurrentSession is null)
+        {
+            return;
+        }
+        var session = CurrentSession;
+        var groupId = value.Kind == GroupScopeKind.Group ? value.GroupId : null;
+        if (session.Dto.GroupId == groupId)
+        {
+            return;
+        }
+        _ = SaveScopeAsync(session, groupId);
+    }
+
+    private async Task SaveScopeAsync(SessionItemViewModel session, string? groupId)
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        try
+        {
+            var updated = await _api.SetSessionGroupAsync(session.SessionId, groupId);
+            session.Update(updated);
+            ApplyGroupNames();
+            // 换范围只影响之后的问题，所以这里不重载消息，只提示一句
+            Status = groupId is null
+                ? $"会话「{session.Title}」的检索范围：全部数据源"
+                : $"会话「{session.Title}」的检索范围：{Groups.FirstOrDefault(g => g.GroupId == groupId)?.Name}";
+            UpdateScopeWarning();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "设置检索范围");
+            Status = $"设置检索范围失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>当前范围对应的分组里一个数据源都没有时，给一句提醒（否则问了会答「没有依据」）。</summary>
+    private void UpdateScopeWarning()
+    {
+        var groupId = SelectedScope?.GroupId;
+        if (groupId is null)
+        {
+            ScopeWarning = "";
+            return;
+        }
+        var count = Groups.FirstOrDefault(group => group.GroupId == groupId)?.SourceCount ?? 0;
+        ScopeWarning = count == 0 ? "⚠ 这个分组里还没有数据源，提问将检索不到任何片段" : "";
+    }
+
+    /// <summary>给会话行补上「它绑的是哪个分组」的名字。</summary>
+    private void ApplyGroupNames()
+    {
+        foreach (var session in Sessions)
+        {
+            var groupId = session.Dto.GroupId;
+            session.GroupName = groupId is null
+                ? ""
+                : Groups.FirstOrDefault(group => group.GroupId == groupId)?.Name ?? "（已删除的分组）";
+        }
+    }
+
+    /// <summary>「分组」小清单里勾选变化后保存（整体替换该数据源的所属分组）。</summary>
+    private async Task SaveSourceGroupsAsync(SourceItemViewModel item)
+    {
+        if (_api is null || item.Dto.SourceId.StartsWith("pending:", StringComparison.Ordinal))
+        {
+            return;
+        }
+        try
+        {
+            var updated = await _api.SetSourceGroupsAsync(item.Dto.SourceId, item.CheckedGroupIds);
+            item.Update(updated);
+            await RefreshGroupsAsync();   // 各分组的成员数变了
+            Status = updated.GroupIds.Count == 0
+                ? $"「{item.Name}」已移出所有分组"
+                : $"「{item.Name}」的分组已更新";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "保存数据源分组");
+            Status = $"保存分组失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>打开「分组管理」对话框（新建 / 改名 / 删除）。</summary>
+    [RelayCommand]
+    private async Task ManageGroupsAsync()
+    {
+        if (_api is null)
+        {
+            return;
+        }
+        await _groupsDialog.ShowDialogAsync(_api, RefreshAllAfterGroupsAsync);
+    }
+
+    /// <summary>分组管理里动过之后：分组、数据源、会话三处都要重新对齐。</summary>
+    private async Task RefreshAllAfterGroupsAsync()
+    {
+        await RefreshGroupsAsync();
+        var rows = await _api!.ListSourcesAsync();
+        MergeSources(rows);
+        ApplyGroupNames();
+        UpdateScopeWarning();
     }
 
     /// <summary>选若干 MinerU 产物目录并导入：每个目录一个后台任务，一起并发跑。
@@ -204,7 +438,8 @@ public partial class MainViewModel : ObservableObject
                 var item = new SourceItemViewModel(new SourceDto(
                     SourceId: $"pending:{jobId}", Name: Path.GetFileName(path), Path: path, ChunkCount: 0,
                     ImageCount: 0, AddedAt: "", EmbeddedAt: "", Missing: false, EmbedModel: "", EmbedDim: 0,
-                    Stale: false))
+                    Stale: false, GroupIds: []),
+                    onGroupsChanged: SaveSourceGroupsAsync)
                 {
                     IsImporting = true,
                     Status = "排队中…",
@@ -350,6 +585,7 @@ public partial class MainViewModel : ObservableObject
             {
                 CurrentSession = Sessions.FirstOrDefault(item => item.SessionId == currentId) ?? Sessions.FirstOrDefault();
             }
+            ApplyGroupNames();
         }
         catch (Exception ex)
         {
@@ -427,7 +663,24 @@ public partial class MainViewModel : ObservableObject
         {
             return;
         }
+        SyncScopeToSession(newValue);
         _ = LoadMessagesSafeAsync(newValue);
+    }
+
+    /// <summary>把对话区那个「检索范围」下拉对齐到当前会话绑定的分组（程序化改动，不触发保存）。</summary>
+    private void SyncScopeToSession(SessionItemViewModel session)
+    {
+        _syncingScope = true;
+        try
+        {
+            SelectedScope = ScopeOptions.FirstOrDefault(option => option.GroupId == session.Dto.GroupId)
+                            ?? ScopeOptions.FirstOrDefault();
+        }
+        finally
+        {
+            _syncingScope = false;
+        }
+        UpdateScopeWarning();
     }
 
     private async Task LoadMessagesSafeAsync(SessionItemViewModel session)
@@ -453,13 +706,18 @@ public partial class MainViewModel : ObservableObject
         }
         try
         {
-            var created = await _api.CreateSessionAsync();
+            // 新建的会话默认沿用左栏当前筛选的分组（选了「全部数据源」或「未分组」就是全部数据源）
+            var groupId = SelectedGroupFilter?.Kind == GroupScopeKind.Group ? SelectedGroupFilter.GroupId : null;
+            var created = await _api.CreateSessionAsync(null, groupId);
             var item = new SessionItemViewModel(created);
             Sessions.Insert(0, item);
             _switchingSession = false;
             CurrentSession = item;
+            ApplyGroupNames();
             Messages.Clear();
-            Status = "已新建会话，直接提问即可（标题会按第一个问题自动生成）";
+            Status = groupId is null
+                ? "已新建会话，直接提问即可（标题会按第一个问题自动生成）"
+                : $"已新建会话，检索范围：{Groups.FirstOrDefault(g => g.GroupId == groupId)?.Name}";
         }
         catch (Exception ex)
         {

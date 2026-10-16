@@ -109,12 +109,13 @@ public sealed class ApiClient : IDisposable
         return Json.Parse(body, ApiJson.Default.IReadOnlyListSessionDto);
     }
 
-    /// <summary>新建会话，返回新建出来的那一行。</summary>
-    public async Task<SessionDto> CreateSessionAsync(string? title = null, CancellationToken cancellationToken = default)
+    /// <summary>新建会话，返回新建出来的那一行。group_id 给了就直接绑好检索范围。</summary>
+    public async Task<SessionDto> CreateSessionAsync(
+        string? title = null, string? groupId = null, CancellationToken cancellationToken = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/sessions")
         {
-            Content = JsonContent.Create(new SessionCreateDto(title), ApiJson.Default.SessionCreateDto),
+            Content = JsonContent.Create(new SessionCreateDto(title, groupId), ApiJson.Default.SessionCreateDto),
         };
         var response = await _http.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -170,6 +171,87 @@ public sealed class ApiClient : IDisposable
             throw new InvalidOperationException(body);
         }
         return Json.Parse(body, ApiJson.Default.ChatClearDto);
+    }
+
+    /// <summary>设置某个会话的检索范围（groupId 传 null = 全部数据源）。</summary>
+    public async Task<SessionDto> SetSessionGroupAsync(
+        string sessionId, string? groupId, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/sessions/{sessionId}/group")
+        {
+            Content = JsonContent.Create(new SessionGroupDto(groupId), ApiJson.Default.SessionGroupDto),
+        };
+        var response = await _http.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+        return Json.Parse(body, ApiJson.Default.SessionDto);
+    }
+
+    /// <summary>所有数据源分组（按名字排，带成员数）。</summary>
+    public async Task<IReadOnlyList<GroupDto>> ListGroupsAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await _http.GetStringAsync("/api/groups", cancellationToken);
+        return Json.Parse(body, ApiJson.Default.IReadOnlyListGroupDto);
+    }
+
+    public async Task<GroupDto> CreateGroupAsync(string name, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/groups")
+        {
+            Content = JsonContent.Create(new GroupNameDto(name), ApiJson.Default.GroupNameDto),
+        };
+        return await SendGroupAsync(request, cancellationToken);
+    }
+
+    public async Task<GroupDto> RenameGroupAsync(
+        string groupId, string name, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/groups/{groupId}")
+        {
+            Content = JsonContent.Create(new GroupNameDto(name), ApiJson.Default.GroupNameDto),
+        };
+        return await SendGroupAsync(request, cancellationToken);
+    }
+
+    /// <summary>删分组。后端在同名/重名等情况下会 409 并把原因写在 detail 里，这里原样抛出给界面显示。</summary>
+    public async Task DeleteGroupAsync(string groupId, CancellationToken cancellationToken = default)
+    {
+        var response = await _http.DeleteAsync($"/api/groups/{groupId}", cancellationToken);
+        if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+    }
+
+    /// <summary>设置某个数据源属于哪些分组（整体替换；空列表 = 移出所有分组）。返回更新后的数据源。</summary>
+    public async Task<SourceDto> SetSourceGroupsAsync(
+        string sourceId, IReadOnlyList<string> groupIds, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/sources/{sourceId}/groups")
+        {
+            Content = JsonContent.Create(new SourceGroupsDto(groupIds), ApiJson.Default.SourceGroupsDto),
+        };
+        var response = await _http.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+        return Json.Parse(body, ApiJson.Default.SourceDto);
+    }
+
+    private async Task<GroupDto> SendGroupAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var response = await _http.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+        return Json.Parse(body, ApiJson.Default.GroupDto);
     }
 
     /// <summary>

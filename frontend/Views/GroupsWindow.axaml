@@ -1,0 +1,122 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:frontend.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="560"
+        x:Class="frontend.Views.GroupsWindow"
+        x:DataType="vm:GroupsViewModel"
+        Title="分组管理" Width="580" Height="560"
+        Icon="/Assets/book.ico"
+        WindowStartupLocation="CenterOwner"
+        TransparencyLevelHint="Mica,AcrylicBlur"
+        Background="{DynamicResource RagWhite}">
+
+    <DockPanel Margin="18">
+        <!-- 底部：错误信息（后端 409 的原文）+ 关闭 -->
+        <Border DockPanel.Dock="Bottom"
+                Margin="0,14,0,0"
+                Padding="0,12,0,0"
+                BorderBrush="{DynamicResource RagHairline}"
+                BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding Error}"
+                           Foreground="#DC2626"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           IsVisible="{Binding HasError}" />
+                <Button Grid.Column="1"
+                        Content="关闭"
+                        Click="OnClose"
+                        Padding="18,7" />
+            </Grid>
+        </Border>
+
+        <!-- 顶部：说明 + 新建 -->
+        <StackPanel DockPanel.Dock="Top" Spacing="10">
+            <TextBlock Text="分组管理" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            <TextBlock FontSize="12"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                       Text="分组只决定「检索范围」：会话绑定某个分组后，提问只在该分组的数据源里检索，数据源本身不会被搬动。一个数据源可以同时属于多个分组；删掉分组后，组里的数据源回到「未分组」。" />
+
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding NewName}"
+                         PlaceholderText="新分组名，例如：民法" />
+                <Button Grid.Column="1"
+                        Content="新建分组"
+                        Classes="accent"
+                        Margin="8,0,0,0"
+                        Command="{Binding CreateCommand}" />
+            </Grid>
+        </StackPanel>
+
+        <!-- 分组列表 -->
+        <Grid Margin="0,12,0,0">
+            <TextBlock Text="还没有分组。新建一个，然后在左侧数据源卡片上点「分组」把它放进去。"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                       IsVisible="{Binding IsEmpty}" />
+
+            <ListBox ItemsSource="{Binding Groups}"
+                     Background="Transparent"
+                     BorderThickness="0">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,8" />
+                        <Setter Property="CornerRadius" Value="6" />
+                        <Setter Property="Background" Value="Transparent" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:GroupRowViewModel">
+                        <Border Background="{DynamicResource RagSurface}"
+                                BorderBrush="{DynamicResource RagHairline}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="10,8">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                <TextBox Grid.Row="0" Grid.Column="0"
+                                         Text="{Binding Name}"
+                                         FontSize="13" />
+
+                                <StackPanel Grid.Row="0" Grid.Column="1"
+                                            Orientation="Horizontal" Spacing="4"
+                                            VerticalAlignment="Center">
+                                    <Button Content="改名" FontSize="12"
+                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).RenameCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="保存这一行的名字" />
+                                    <Button Content="×" FontSize="12" Padding="6,2"
+                                            IsVisible="{Binding !IsConfirmingDelete}"
+                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).DeleteCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="删除分组" />
+                                    <Button Content="确定删除"
+                                            IsVisible="{Binding IsConfirmingDelete}"
+                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).DeleteCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Content="取消"
+                                            IsVisible="{Binding IsConfirmingDelete}"
+                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).CancelDeleteCommand}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Text="{Binding Subtitle}"
+                                           FontSize="11"
+                                           Margin="0,4,0,0"
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -12,7 +12,7 @@ using frontend.ViewModels;
 
 namespace frontend.Views;
 
-public partial class MainWindow : Window, IFolderPicker, ISettingsDialog
+public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroupsDialog
 {
     private MainViewModel? _viewModel;
 
@@ -110,6 +110,14 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog
         var window = new SettingsWindow { DataContext = new SettingsViewModel(current) };
         var saved = await window.ShowDialog<bool>(this);
         return saved ? window.Result : null;
+    }
+
+    /// <summary>弹出分组管理窗口（IGroupsDialog 的实现）。改动由窗口内的 ViewModel 直接落库，
+    /// 每改一次就回调 onChanged，让主界面把分组、数据源、会话三处重新对齐。</summary>
+    public async Task ShowDialogAsync(ApiClient api, Func<Task> onChanged)
+    {
+        var window = new GroupsWindow { DataContext = new GroupsViewModel(api, onChanged) };
+        await window.ShowDialog(this);
     }
 
     /// <summary>双击会话标题进入重命名。</summary>

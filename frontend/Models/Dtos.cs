@@ -35,7 +35,8 @@ public sealed record SourceDto(
     bool Missing,
     string EmbedModel,
     int EmbedDim,
-    bool Stale);
+    bool Stale,
+    IReadOnlyList<string> GroupIds);   // 它属于哪些分组（一个源可以同时在多个分组里）
 
 /// <summary>后台任务状态（导入进度）。</summary>
 public sealed record JobDto(
@@ -69,10 +70,28 @@ public sealed record SessionDto(
     string Title,
     string CreatedAt,
     string UpdatedAt,
-    int MessageCount);
+    int MessageCount,
+    string? GroupId);   // 检索范围：绑定的分组；null = 全部数据源
 
 /// <summary>新建会话的请求体（标题留空则由后端用默认名，首问后自动命名）。</summary>
-public sealed record SessionCreateDto(string? Title = null);
+public sealed record SessionCreateDto(string? Title = null, string? GroupId = null);
+
+/// <summary>设置某个会话的检索范围（GroupId 为 null 就是「全部数据源」；
+/// 源生成器配了 WhenWritingNull，所以 null 会整个字段不写，正好等于后端要的 null）。</summary>
+public sealed record SessionGroupDto(string? GroupId);
+
+/// <summary>一个数据源分组。</summary>
+public sealed record GroupDto(
+    string GroupId,
+    string Name,
+    string CreatedAt,
+    int SourceCount);
+
+/// <summary>新建 / 重命名分组。</summary>
+public sealed record GroupNameDto(string Name);
+
+/// <summary>把一个数据源的所属分组整体替换成这些（空列表 = 移出所有分组）。</summary>
+public sealed record SourceGroupsDto(IReadOnlyList<string> GroupIds);
 
 /// <summary>重命名会话。</summary>
 public sealed record SessionRenameDto(string Title);
@@ -176,6 +195,11 @@ public sealed record ErrorDto(string Detail);
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(HealthDto))]
 [JsonSerializable(typeof(SourceDto))]
+[JsonSerializable(typeof(GroupDto))]
+[JsonSerializable(typeof(IReadOnlyList<GroupDto>))]
+[JsonSerializable(typeof(GroupNameDto))]
+[JsonSerializable(typeof(SourceGroupsDto))]
+[JsonSerializable(typeof(SessionGroupDto))]
 [JsonSerializable(typeof(IReadOnlyList<SourceDto>))]
 [JsonSerializable(typeof(JobDto))]
 [JsonSerializable(typeof(SourceCreateDto))]

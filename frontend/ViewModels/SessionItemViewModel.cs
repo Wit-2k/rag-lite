@@ -28,8 +28,16 @@ public partial class SessionItemViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsConfirmingDelete { get; set; }
 
-    /// <summary>行尾的备注：消息条数。</summary>
-    public string Subtitle => $"{Dto.MessageCount} 条";
+    /// <summary>这个会话绑定的数据源分组名；空串 = 全部数据源。</summary>
+    [ObservableProperty]
+    public partial string GroupName { get; set; } = "";
+
+    /// <summary>行尾的备注：消息条数（绑了分组就把分组名也带上）。</summary>
+    public string Subtitle => GroupName.Length == 0
+        ? $"{Dto.MessageCount} 条"
+        : $"{Dto.MessageCount} 条 · {GroupName}";
+
+    partial void OnGroupNameChanged(string value) => OnPropertyChanged(nameof(Subtitle));
 
     /// <summary>刷新后原地更新（保留同一个实例，避免列表闪烁）。</summary>
     public void Update(SessionDto dto)

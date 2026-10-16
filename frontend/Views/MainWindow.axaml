@@ -37,6 +37,23 @@
                                 Command="{Binding RefreshCommand}" />
                     </StackPanel>
 
+                    <!-- 分组筛选：只影响左栏显示什么，不影响会话的检索范围 -->
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="分组" FontSize="12" VerticalAlignment="Center"
+                                   Margin="0,0,6,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding GroupFilters}"
+                                  SelectedItem="{Binding SelectedGroupFilter}"
+                                  DisplayMemberBinding="{Binding Name}"
+                                  FontSize="12"
+                                  HorizontalAlignment="Stretch"
+                                  ToolTip.Tip="只显示某个分组的数据源（仅影响这个列表）" />
+                        <Button Grid.Column="2" Content="管理" FontSize="12" Padding="8,2" Margin="6,0,0,0"
+                                Command="{Binding ManageGroupsCommand}"
+                                ToolTip.Tip="新建 / 改名 / 删除分组" />
+                    </Grid>
+
                     <!-- 后端准备与状态提示 -->
                     <Border Background="{DynamicResource RagWhite}"
                             BorderBrush="{DynamicResource RagHairline}"
@@ -51,11 +68,17 @@
                     </Border>
                 </StackPanel>
 
-                <!-- 数据源列表：Fluent 卡片列表风格 -->
-                <ListBox ItemsSource="{Binding Sources}"
+                <!-- 数据源列表：Fluent 卡片列表风格（外面套一层 Grid 是为了放「筛选后为空」的提示） -->
+                <Grid Margin="0,12,0,0">
+                <TextBlock Text="{Binding SourceFilterHint}"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Top"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                           IsVisible="{Binding SourceFilterHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <ListBox ItemsSource="{Binding SourcesView}"
                          Background="Transparent"
-                         BorderThickness="0"
-                         Margin="0,12,0,0">
+                         BorderThickness="0">
                     <ListBox.Styles>
                         <!-- 调整每项内边距与选中交互 -->
                         <Style Selector="ListBoxItem">
@@ -83,6 +106,11 @@
                                     <TextBlock Text="{Binding Subtitle}"
                                                FontSize="12"
                                                Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+
+                                    <!-- 所属分组（一个源可以同时在多个分组里） -->
+                                    <TextBlock Text="{Binding GroupSummary}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
 
                                     <!-- 警告标记：如目录丢失或维度不一致 -->
                                     <Border Background="#1FF59E0B"
@@ -112,19 +140,53 @@
                                                TextWrapping="Wrap"
                                                IsVisible="{Binding HasStatus}" />
 
-                                    <!-- 移除按钮：轻量级次要按钮 -->
-                                    <Button Content="移除"
-                                            HorizontalAlignment="Left"
-                                            FontSize="12"
-                                            Padding="10,3"
-                                            Margin="0,2,0,0"
-                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
-                                            CommandParameter="{Binding}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0">
+                                        <!-- 分组：点开勾选，勾上立刻保存 -->
+                                        <Button Content="分组" FontSize="12" Padding="10,3"
+                                                ToolTip.Tip="这个数据源属于哪些分组（可多选，勾上即保存）">
+                                            <Button.Flyout>
+                                                <Flyout Placement="Right">
+                                                    <StackPanel Spacing="6" MinWidth="190">
+                                                        <TextBlock Text="放在哪些分组里" FontSize="12" FontWeight="SemiBold" />
+                                                        <TextBlock Text="可以同时属于多个分组"
+                                                                   FontSize="11"
+                                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                                        <ItemsControl ItemsSource="{Binding GroupToggles}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:GroupToggleViewModel">
+                                                                    <!-- 单向绑定 + 命令：只有用户点击才保存
+                                                                         （双向绑定会在重建清单时把默认值写回来，误触发保存） -->
+                                                                    <CheckBox Content="{Binding Name}"
+                                                                              IsChecked="{Binding IsChecked, Mode=OneWay}"
+                                                                              Command="{Binding ToggleCommand}"
+                                                                              FontSize="12" />
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Text="还没有分组：点上方的「管理」新建一个"
+                                                                   FontSize="11"
+                                                                   TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                                                   IsVisible="{Binding NoGroupsYet}" />
+                                                    </StackPanel>
+                                                </Flyout>
+                                            </Button.Flyout>
+                                        </Button>
+
+                                        <!-- 移除按钮：轻量级次要按钮 -->
+                                        <Button Content="移除"
+                                                HorizontalAlignment="Left"
+                                                FontSize="12"
+                                                Padding="10,3"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+                </Grid>
             </DockPanel>
         </Border>
 
@@ -233,6 +295,25 @@
                                    Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                    TextWrapping="Wrap"
                                    IsVisible="{Binding ConfigHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                        <!-- 当前会话的检索范围：换它只影响之后的问题 -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                            <TextBlock Text="检索范围" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            <ComboBox ItemsSource="{Binding ScopeOptions}"
+                                      SelectedItem="{Binding SelectedScope}"
+                                      DisplayMemberBinding="{Binding Name}"
+                                      FontSize="12"
+                                      MinWidth="160"
+                                      IsEnabled="{Binding !IsAsking}"
+                                      ToolTip.Tip="这个会话提问时检索哪些数据源；换范围只影响之后的问题" />
+                            <TextBlock Text="{Binding ScopeWarning}"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Foreground="#D97706"
+                                       IsVisible="{Binding ScopeWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
