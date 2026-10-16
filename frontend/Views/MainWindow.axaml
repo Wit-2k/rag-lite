@@ -10,7 +10,7 @@
         x:DataType="vm:MainViewModel"
         Icon="/Assets/book.ico"
         Title="rag-lite — 本地文档问答"
-        Width="1180" Height="760" MinWidth="900" MinHeight="600"
+        Width="1180" Height="760" MinWidth="1050" MinHeight="600"
         TransparencyLevelHint="Mica,AcrylicBlur"
         Background="{DynamicResource RagWhite}">
 
