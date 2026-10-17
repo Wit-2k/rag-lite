@@ -10,8 +10,10 @@
   · 返回 data[i] = {"index": i, "embedding": [...]}，另外带 usage（prompt_tokens / cost）
 
 实测注意点：图文混排的图片也按 token 计费（usage.prompt_tokens_details.image_tokens），
-一次请求里混着"纯文本条目"和"图文条目"容易被上游挑刺，所以本模块把两类分开：
-纯文本按批发，带图的块一条一个请求（图片本来就少）。
+一次请求里混着"纯文本条目"和"图文条目"容易被上游挑刺，所以本模块把两类分成不同的请求：
+纯文本按批（默认 64 条、且不超过 32000 字符），带图的块一条一个请求。
+但这些请求**并发发送**（默认 4 路）：实测单请求固定等待约 1.5 秒，串行批发是建库慢的全部原因
+（192 块：串行 14 个请求 31.9 秒 → 并发后 6 个请求约 5 秒，见计划 D17）。
 """
 
 from __future__ import annotations
@@ -20,7 +22,9 @@ import base64
 import json
 import mimetypes
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
@@ -46,6 +50,16 @@ DEFAULT_RERANK_MODEL = "voyageai/rerank-3"
 # 重排前把单篇文档截断到这个长度：模型对「查询-文档」合计上限是 32K token（查询 ≤8K），
 # 我们单块最长约 1400 字符，4000 字符足够留出余量，也顺手压住费用。
 DEFAULT_RERANK_DOC_CHARS = 4000
+
+# 建库默认参数（实测依据见计划 D17）：
+# - 每批 64 条：192 块的请求数从 12 个降到 4 个（仍受 32000 字符上限约束）
+# - 4 路并发：把「请求数 × 每次约 1.5~2.5 秒固定等待」这条串行链拆开
+DEFAULT_BATCH = 64
+DEFAULT_EMBED_WORKERS = 6
+# 全局闸门：批量导入时会有多个文档各自并发（3 个文档 × 6 路），
+# 这里把**同时在飞的嵌入请求**总数压住，免得触发上游限流反而更慢。
+MAX_CONCURRENT_EMBED_REQUESTS = 8
+_EMBED_GATE = threading.BoundedSemaphore(MAX_CONCURRENT_EMBED_REQUESTS)
 # 上游没回 cost 时的兜底单价（$0.05 / 百万 token，来自 OpenRouter 模型页），仅用于报表估算
 RERANK_COST_PER_MTOKEN = 0.05
 
@@ -269,7 +283,8 @@ def _embed_batch(
         # Voyage 系模型区分「文档」和「查询」，检索时两边的向量才在同一个空间里对齐
         payload["input_type"] = input_type
 
-    data, elapsed = client.post(payload)
+    with _EMBED_GATE:            # 同一时刻最多 MAX_CONCURRENT_EMBED_REQUESTS 个嵌入请求在飞
+        data, elapsed = client.post(payload)
     rows = data.get("data") or []
     if len(rows) != len(items):
         raise OpenRouterError(f"返回条数不符：期望 {len(items)} 条，实际 {len(rows)} 条")
@@ -348,6 +363,50 @@ def _batches(chars: Sequence[int], *, batch: int, max_chars: int) -> list[list[i
 # —— 对外主函数 ————————————————————————————————————————————————————
 
 
+def _run_embed_tasks(
+    client: _Client,
+    tasks: list[tuple[list[int], list[str | dict]]],
+    *,
+    model: str,
+    dim: int,
+    input_type: str | None,
+    total: int,
+    workers: int,
+    on_progress: Callable[[int, int], None] | None,
+) -> tuple[list[list[float]], EmbedUsage]:
+    """把 (输出位置, 请求条目) 一组组发出去；workers>1 时并发，结果始终按原顺序归位。
+
+    `client` 在多个线程间共用：内部只做 `session.post`，共享的是线程安全的连接池；
+    我们不读改 cookie/headers，所以不会互相干扰。进度只在主线程累加，回调天然单调、不必加锁。
+    """
+    vectors: list[list[float] | None] = [None] * total
+    usage = EmbedUsage()
+    done = 0
+
+    def absorb(indexes: list[int], outcome: tuple[list[list[float]], EmbedUsage]) -> None:
+        nonlocal done, usage
+        batch_vectors, batch_usage = outcome
+        for offset, index in enumerate(indexes):
+            vectors[index] = batch_vectors[offset]
+        usage = usage + batch_usage
+        done += len(indexes)
+        if on_progress:
+            on_progress(done, total)
+
+    if workers <= 1 or len(tasks) <= 1:
+        for indexes, items in tasks:
+            absorb(indexes, _embed_batch(client, items, model=model, dim=dim, input_type=input_type))
+    else:
+        with ThreadPoolExecutor(max_workers=min(workers, len(tasks)), thread_name_prefix="embed") as pool:
+            futures = {
+                pool.submit(_embed_batch, client, items, model=model, dim=dim, input_type=input_type): indexes
+                for indexes, items in tasks
+            }
+            for future in as_completed(futures):
+                absorb(futures[future], future.result())
+    return [vector for vector in vectors if vector is not None], usage
+
+
 def embed_texts(
     texts: Sequence[str],
     *,
@@ -355,7 +414,7 @@ def embed_texts(
     model: str = DEFAULT_MODEL,
     dim: int = DEFAULT_DIM,
     base_url: str = DEFAULT_EMBED_BASE_URL,
-    batch: int = 16,
+    batch: int = DEFAULT_BATCH,
     max_chars_per_request: int = 32000,
     input_type: str | None = "search_document",
     timeout_s: float = 120.0,
@@ -363,8 +422,12 @@ def embed_texts(
     session: requests.Session | None = None,
     sleep: Callable[[float], None] = time.sleep,
     on_progress: Callable[[int, int], None] | None = None,
+    workers: int = DEFAULT_EMBED_WORKERS,
 ) -> EmbedResult:
-    """把一串文本变成向量（用于提问时的查询向量，或纯文本入库）。"""
+    """把一串文本变成向量（用于提问时的查询向量，或纯文本入库）。
+
+    `workers` > 1 时按批并发（默认 4 路）。查询侧只有一批，会走串行那条路，行为不变。
+    """
     if dim not in ALLOWED_DIMS:
         raise OpenRouterError(f"dimensions 只能是 {ALLOWED_DIMS}，收到 {dim}")
     if not texts:
@@ -378,21 +441,22 @@ def embed_texts(
         session=session,
         sleep=sleep,
     )
-    vectors: list[list[float] | None] = [None] * len(texts)
-    usage = EmbedUsage()
     chars = [len(text) for text in texts]
-    done = 0
-    for group in _batches(chars, batch=batch, max_chars=max_chars_per_request):
-        batch_vectors, batch_usage = _embed_batch(
-            client, [texts[i] for i in group], model=model, dim=dim, input_type=input_type
-        )
-        for offset, index in enumerate(group):
-            vectors[index] = batch_vectors[offset]
-        usage = usage + batch_usage
-        done += len(group)
-        if on_progress:
-            on_progress(done, len(texts))
-    return EmbedResult(vectors=[v for v in vectors if v is not None], usage=usage, dim=dim)
+    tasks = [
+        (group, [texts[index] for index in group])
+        for group in _batches(chars, batch=batch, max_chars=max_chars_per_request)
+    ]
+    vectors, usage = _run_embed_tasks(
+        client,
+        tasks,
+        model=model,
+        dim=dim,
+        input_type=input_type,
+        total=len(texts),
+        workers=workers,
+        on_progress=on_progress,
+    )
+    return EmbedResult(vectors=vectors, usage=usage, dim=dim)
 
 
 def embed_blocks(
@@ -402,7 +466,7 @@ def embed_blocks(
     model: str = DEFAULT_MODEL,
     dim: int = DEFAULT_DIM,
     base_url: str = DEFAULT_EMBED_BASE_URL,
-    batch: int = 16,
+    batch: int = DEFAULT_BATCH,
     max_chars_per_request: int = 32000,
     input_type: str | None = "search_document",
     timeout_s: float = 120.0,
@@ -410,61 +474,45 @@ def embed_blocks(
     session: requests.Session | None = None,
     sleep: Callable[[float], None] = time.sleep,
     on_progress: Callable[[int, int], None] | None = None,
+    workers: int = DEFAULT_EMBED_WORKERS,
 ) -> EmbedResult:
     """把分块结果整批变成向量，返回顺序与 blocks 一致。
 
-    纯文本块按批发送；带图片的块一条一个请求（图文混排容易被上游挑剔，单独发最稳）。
+    纯文本块按批（默认 64 条、不超过 32000 字符）；带图片的块一条一个请求
+    （图文混排容易被上游挑剔，单独发最稳）。这些请求**一起进并发池**（默认 4 路）。
     """
     plain = [index for index, block in enumerate(blocks) if not block.images]
     rich = [index for index, block in enumerate(blocks) if block.images]
 
-    vectors: list[list[float] | None] = [None] * len(blocks)
-    usage = EmbedUsage()
-    done = 0
+    client = _Client(
+        api_key=api_key,
+        url=endpoint_url(base_url, EMBED_PATH),
+        timeout_s=timeout_s,
+        max_retries=max_retries,
+        session=session,
+        sleep=sleep,
+    )
 
+    tasks: list[tuple[list[int], list[str | dict]]] = []
     if plain:
-        plain_result = embed_texts(
-            [blocks[index].text for index in plain],
-            api_key=api_key,
-            model=model,
-            dim=dim,
-            base_url=base_url,
-            batch=batch,
-            max_chars_per_request=max_chars_per_request,
-            input_type=input_type,
-            timeout_s=timeout_s,
-            max_retries=max_retries,
-            session=session,
-            sleep=sleep,
-            on_progress=None,
+        # 先按「条数 + 字符数」把纯文本切成批，再把批内下标映射回块下标
+        groups = _batches(
+            [len(blocks[index].text) for index in plain], batch=batch, max_chars=max_chars_per_request
         )
-        for offset, index in enumerate(plain):
-            vectors[index] = plain_result.vectors[offset]
-        usage = usage + plain_result.usage
-        done += len(plain)
-        if on_progress:
-            on_progress(done, len(blocks))
+        tasks.extend(([plain[i] for i in group], [blocks[plain[i]].text for i in group]) for group in groups)
+    tasks.extend(([index], [_build_input(blocks[index])]) for index in rich)
 
-    if rich:
-        client = _Client(
-            api_key=api_key,
-            url=endpoint_url(base_url, EMBED_PATH),
-            timeout_s=timeout_s,
-            max_retries=max_retries,
-            session=session,
-            sleep=sleep,
-        )
-        for index in rich:
-            batch_vectors, batch_usage = _embed_batch(
-                client, [_build_input(blocks[index])], model=model, dim=dim, input_type=input_type
-            )
-            vectors[index] = batch_vectors[0]
-            usage = usage + batch_usage
-            done += 1
-            if on_progress:
-                on_progress(done, len(blocks))
-
-    return EmbedResult(vectors=[v for v in vectors if v is not None], usage=usage, dim=dim)
+    vectors, usage = _run_embed_tasks(
+        client,
+        tasks,
+        model=model,
+        dim=dim,
+        input_type=input_type,
+        total=len(blocks),
+        workers=workers,
+        on_progress=on_progress,
+    )
+    return EmbedResult(vectors=vectors, usage=usage, dim=dim)
 
 
 # —— 重排 ————————————————————————————————————————————————————————

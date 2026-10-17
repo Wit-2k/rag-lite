@@ -241,8 +241,13 @@ def _check_doc_invariants(md_path: Path, *, chunk_size: int = 1000) -> None:
         if not m.group(1).startswith(("http://", "https://", "data:", "//"))
     }
     existing = {p for p in refs if p.is_file() and p.stat().st_size <= 4 * 1024 * 1024}
-    assert {p for b in result.blocks for p in b.images} == existing
+    attached = {p for b in result.blocks for p in b.images}
+    # 挂上的图必须都真实存在（不会凭空多出来）
+    assert attached <= existing
+    # 一个都不能凭空消失：引用 = 挂上 + 因「每块附图上限」被丢弃（丢弃时逐张记 warning）
     assert result.stats["images_referenced"] == len(existing)
+    assert result.stats["images_attached"] == len(attached)
+    assert result.stats["images_attached"] + result.stats["images_dropped"] == result.stats["images_referenced"]
 
 
 def test_synthetic_doc_invariants(tmp_path: Path) -> None:

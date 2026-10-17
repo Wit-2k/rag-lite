@@ -13,6 +13,7 @@ from typing import Callable
 
 from app.core.chunking import chunk_markdown
 from app.core.openrouter import (
+    DEFAULT_BATCH,
     DEFAULT_DIM,
     DEFAULT_EMBED_BASE_URL,
     DEFAULT_MODEL,
@@ -59,7 +60,7 @@ def ingest(
     model: str = DEFAULT_MODEL,
     dim: int = DEFAULT_DIM,
     base_url: str = DEFAULT_EMBED_BASE_URL,
-    batch: int = 16,
+    batch: int = DEFAULT_BATCH,
     force: bool = False,
     on_progress: ProgressFn | None = None,
 ) -> IngestResult:

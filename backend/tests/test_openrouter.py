@@ -9,6 +9,7 @@ r"""向量化模块的回归测试。
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -66,7 +67,11 @@ def embedding_response(count: int, *, dim: int = DEFAULT_DIM, reverse: bool = Fa
 
 
 class FakeSession:
-    """记录每次请求，按顺序吐出预设响应（可以是异常，用来模拟网络故障）。"""
+    """记录每次请求，按顺序吐出预设响应（可以是异常，用来模拟网络故障）。
+
+    「按顺序吐」决定了它**只能配合 workers=1**：并发时响应落到哪个请求是不确定的。
+    要验证并发行为，用下面的 EchoSession。
+    """
 
     def __init__(self, responses: list) -> None:
         self.responses = list(responses)
@@ -78,6 +83,29 @@ class FakeSession:
         if isinstance(item, Exception):
             raise item
         return item
+
+
+class EchoSession:
+    """**线程安全**的回声会话：按请求体本身生成响应，不依赖调用顺序。
+
+    纯文本条目是数字字符串，向量首元素就回这个数字；图文条目统一回 99。
+    这样并发时无论谁先完成，都能校验「结果是否按输入顺序归位」。
+    """
+
+    def __init__(self) -> None:
+        self.sizes: list[int] = []
+        self._lock = threading.Lock()
+
+    def post(self, url, headers=None, json=None, timeout=None):  # noqa: A002
+        items = json["input"]
+        with self._lock:
+            self.sizes.append(len(items))
+        data = []
+        for position, item in enumerate(items):
+            # make_block 的 text 是「标题 + 空行 + 正文」，取最后一段就是正文里的数字
+            value = 99.0 if isinstance(item, dict) else float(item.rsplit(chr(10) * 2, 1)[-1])
+            data.append({"index": position, "embedding": [value] + [0.0] * (DEFAULT_DIM - 1)})
+        return FakeResponse(200, {"data": data, "usage": {"prompt_tokens": len(items) * 10, "cost": 0.0001}})
 
 
 def no_sleep(_seconds: float) -> None:
@@ -98,7 +126,7 @@ def test_batches_by_count_and_maps_by_index() -> None:
         ]
     )
 
-    result = embed_texts(texts, api_key="k", batch=16, session=session, sleep=no_sleep)
+    result = embed_texts(texts, api_key="k", batch=16, session=session, sleep=no_sleep, workers=1)
 
     assert [len(call["payload"]["input"]) for call in session.calls] == [16, 16, 8]
     assert len(result.vectors) == 40
@@ -120,9 +148,50 @@ def test_batches_also_respect_char_limit() -> None:
         ]
     )
 
-    embed_texts(texts, api_key="k", batch=16, max_chars_per_request=1200, session=session, sleep=no_sleep)
+    embed_texts(texts, api_key="k", batch=16, max_chars_per_request=1200, session=session, sleep=no_sleep, workers=1)
 
     assert [len(call["payload"]["input"]) for call in session.calls] == [2, 2, 1]
+
+
+def test_parallel_batches_keep_input_order() -> None:
+    """200 条、每批 64 → 4 个请求并发，但向量必须仍按输入顺序返回。"""
+    texts = [str(index) for index in range(200)]
+    session = EchoSession()
+    seen: list[tuple[int, int]] = []
+
+    result = embed_texts(
+        texts,
+        api_key="k",
+        session=session,
+        sleep=no_sleep,
+        on_progress=lambda done, total: seen.append((done, total)),
+    )
+
+    assert sorted(session.sizes) == [8, 64, 64, 64]          # 64/64/64/8，顺序不定
+    assert [int(vector[0]) for vector in result.vectors] == list(range(200))   # 归位正确
+    assert result.usage.requests == 4
+    assert result.usage.cost_usd == pytest.approx(0.0004)
+    # 进度回调天然单调，最后一定是 (总数, 总数)
+    assert seen[-1] == (200, 200)
+    assert all(later[0] > earlier[0] for earlier, later in zip(seen, seen[1:]))
+
+
+def test_parallel_pool_includes_image_blocks(tmp_path: Path) -> None:
+    """带图的块一条一个请求，但和纯文本的批**进同一个并发池**。"""
+    image = tmp_path / "images" / "b.jpg"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"\xff\xd8\xff\xe0jpeg-bytes")
+    blocks = [make_block(str(index)) for index in range(3)]
+    blocks.append(make_block("带图块", images=(image,)))
+    blocks.append(make_block("另一张图", images=(image,)))
+    session = EchoSession()
+
+    result = embed_blocks(blocks, api_key="k", session=session, sleep=no_sleep)
+
+    assert sorted(session.sizes) == [1, 1, 3]               # 1 个文本批 + 2 个图片请求
+    assert [int(vector[0]) for vector in result.vectors[:3]] == [0, 1, 2]   # 纯文本按序归位
+    assert [vector[0] for vector in result.vectors[3:]] == [99.0, 99.0]     # 图片块的向量也在自己的位置
+    assert result.usage.requests == 3
 
 
 def test_payload_shape_and_query_input_type() -> None:
@@ -224,7 +293,7 @@ def test_image_block_goes_alone_as_data_uri(tmp_path: Path) -> None:
             FakeResponse(200, {**embedding_response(1), "usage": {"prompt_tokens": 155, "cost": 0.00004, "prompt_tokens_details": {"text_tokens": 20, "image_tokens": 135}}}),
         ]
     )
-    result = embed_blocks(blocks, api_key="k", session=session, sleep=no_sleep)
+    result = embed_blocks(blocks, api_key="k", session=session, sleep=no_sleep, workers=1)
 
     assert len(session.calls) == 2
     assert session.calls[0]["payload"]["input"] == [blocks[0].text]
