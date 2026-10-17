@@ -375,7 +375,7 @@ def chunk_markdown(
     chunk_size: int = 1000,
     min_chunk_size: int = 120,
     max_table_chars: int = 2000,
-    max_images_per_block: int = 4,
+    max_images_per_block: int = 12,
     image_max_bytes: int = 4 * 1024 * 1024,
 ) -> ChunkResult:
     """把 ``full_md`` 切成分块结果。
@@ -386,6 +386,8 @@ def chunk_markdown(
         min_chunk_size: 正文短于它的块会被并入相邻块；它也是同一段文本内片段的合并下限。
         max_table_chars: 表格/代码块超过它才拆（表格按行拆）。
         max_images_per_block: 单块附图上限，超出的丢弃并记警告。
+            取 12 是因为实测语料里 subfigure 多的论文单块最多 9 张；太小会静默丢图，
+            太大会让单次嵌入请求体变肥（每张图都要内联成 data URI）。
         image_max_bytes: 单图体积上限。
     """
     full_md = Path(full_md)
