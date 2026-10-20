@@ -169,6 +169,29 @@ def test_data_dir_override_updates_db_uri(tmp_path: Path) -> None:
     assert settings.db_uri == str(tmp_path / "便携" / "lancedb")
 
 
+def test_db_uri_from_env_updates_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RAGLITE_DB_URI 从环境变量进来时，会话库也要跟着落到它的上一级。
+
+    这是第 10 节记录的已知问题：以前只改了向量库位置，sessions.db 还留在 backend/data。
+    """
+    db_uri = tmp_path / "便携" / "lancedb"
+    monkeypatch.setenv("RAGLITE_DB_URI", str(db_uri))
+
+    settings = load_settings(root=tmp_path, env_file=tmp_path / "不存在.env")
+
+    assert settings.db_uri == str(db_uri)
+    assert settings.data_dir == tmp_path / "便携"
+
+
+def test_explicit_data_dir_beats_env_db_uri(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """命令行 --data-dir 的优先级高于环境变量 RAGLITE_DB_URI，库位置应跟着 data_dir 走。"""
+    monkeypatch.setenv("RAGLITE_DB_URI", str(tmp_path / "旧库" / "lancedb"))
+    settings = load_settings(root=tmp_path, env_file=tmp_path / "不存在.env", data_dir=tmp_path / "便携")
+
+    assert settings.data_dir == tmp_path / "便携"
+    assert settings.db_uri == str(tmp_path / "便携" / "lancedb")
+
+
 def test_settings_is_frozen() -> None:
     """配置对象应当只读，避免运行期被某处悄悄改掉。"""
     settings = Settings()

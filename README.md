@@ -75,7 +75,7 @@ dotnet run                # 会自动拉起上面的后端
 ### 测试
 
 ```bash
-cd backend && uv run pytest -q     # 185 passed；只有 3 条会真调接口，其余用假实现
+cd backend && uv run pytest -q     # 187 passed；只有 3 条会真调接口，其余用假实现
 ```
 
 ## 配置
@@ -92,7 +92,7 @@ cd backend && uv run pytest -q     # 185 passed；只有 3 条会真调接口，
 | 共享兜底 | `OPENROUTER_API_KEY`（三个角色没单独配时都用它） | | | |
 | 检索 | – | – | – | `RETRIEVE_TOP_K`(20) / `CONTEXT_N`(3) |
 | 导入并发 | – | – | – | `MAX_PARALLEL_IMPORTS`(3)：同时导入几个目录，超出的排队；改完**重启**生效 |
-| 服务 | – | – | – | `RAGLITE_HOST` / `RAGLITE_PORT`(17650) / `RAGLITE_DB_URI`（只改向量库位置；会话库跟 `data_dir` 走）|
+| 服务 | – | – | – | `RAGLITE_HOST` / `RAGLITE_PORT`(17650) / `RAGLITE_DB_URI`（向量库位置；会话库同步到它的上一级）|
 
 ⚠ **换嵌入模型**：维度写进了向量库结构。只换模型（维度不变）→ 重新导入原目录即可，程序会发现「入库时的模型」与当前配置不同而自动重新向量化；维度也变了 → 必须重建库（删 `data/lancedb` 或指向新目录），忘了这步启动时会直接报错并告诉你怎么办。
 

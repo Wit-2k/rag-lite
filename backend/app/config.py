@@ -175,10 +175,15 @@ def load_settings(
     explicit = {key: value for key, value in overrides.items() if value is not None}
     if explicit:
         settings = replace(settings, **explicit)  # type: ignore[arg-type]
-    # data_dir 与 db_uri 只要给了一个，另一个就跟着走（replace 会把旧值一起带过来，所以两个方向都要处理）
-    if "data_dir" in explicit and "db_uri" not in explicit:
+    # data_dir 与 db_uri 只要给了一个，另一个就跟着走（replace 会把旧值一起带过来，所以两个方向都要处理）。
+    # 来源既可能是命令行（explicit），也可能是环境变量/.env（kwargs）：
+    # RAGLITE_DB_URI 也要把会话库一起带到它的上一级，否则向量库换了位置、sessions.db 还留在默认 data 目录。
+    explicit_data_dir = "data_dir" in explicit
+    explicit_db_uri = "db_uri" in explicit
+    env_db_uri = "db_uri" in kwargs
+    if explicit_data_dir and not explicit_db_uri:
         settings = replace(settings, db_uri=str(Path(settings.data_dir) / DEFAULT_DB_NAME))
-    elif "db_uri" in explicit and "data_dir" not in explicit:
+    elif (explicit_db_uri or env_db_uri) and not explicit_data_dir:
         settings = replace(settings, data_dir=Path(settings.db_uri).parent)
     if not settings.api_key:  # 兜底：环境变量和 .env 都没读到就再试一次标准读取
         try:

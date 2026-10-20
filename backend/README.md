@@ -14,7 +14,7 @@
 ```bash
 uv sync                                  # 装依赖
 cp .env.example .env                     # 然后把 OPENROUTER_API_KEY 填进去（.env 已被 git 忽略）
-uv run pytest -q                         # 185 条测试，默认只有 3 条会真打接口
+uv run pytest -q                         # 187 条测试，默认只有 3 条会真打接口
 uv run python main.py                    # 起服务，默认 127.0.0.1:17650
 ```
 
@@ -47,7 +47,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 - 维度也变了 → 必须重建库：换 `RAGLITE_DB_URI` 指向新目录，或删掉 `data/lancedb` 重新导入。
   忘了这一步不会静默出错——`Store` 启动时会比对现有维度并提示：现在几维、配置几维、该删库还是该改回配置。
 
-其它可调项：`RETRIEVE_TOP_K`（默认 20）、`CONTEXT_N`（默认 3）、`RAGLITE_HOST` / `RAGLITE_PORT`、`RAGLITE_DB_URI`。
+其它可调项：`RETRIEVE_TOP_K`（默认 20）、`CONTEXT_N`（默认 3）、`RAGLITE_HOST` / `RAGLITE_PORT`、`RAGLITE_DB_URI`（向量库位置；会话库同步到它的上一级）。
 
 注意：`root` / `data_dir` / `db_uri` / `host` / `port` **不能**从界面改（它们决定库在哪），其余都能改。
 界面改的值会写进 `.env`，所以手工编辑 `.env` 与界面改配置是同一份数据，不冲突。
