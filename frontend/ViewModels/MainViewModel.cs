@@ -203,7 +203,7 @@ public partial class MainViewModel : ObservableObject
             var existing = Sources.FirstOrDefault(item => item.Dto.SourceId == row.SourceId);
             if (existing is null)
             {
-                Sources.Add(new SourceItemViewModel(row, SaveSourceGroupsAsync));
+                Sources.Add(new SourceItemViewModel(row));
             }
             else
             {
@@ -276,12 +276,12 @@ public partial class MainViewModel : ObservableObject
         UpdateScopeWarning();
     }
 
-    /// <summary>把每行的勾选清单与「分组：…」文字对齐到最新的分组集合和成员关系。</summary>
+    /// <summary>把每行的只读「分组：…」摘要对齐到最新的分组集合。</summary>
     private void SyncSourceGroups()
     {
         foreach (var item in Sources)
         {
-            item.SyncGroupToggles(Groups);
+            item.SyncGroups(Groups);
         }
         ApplyGroupFilter();
     }
@@ -376,30 +376,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>「分组」小清单里勾选变化后保存（整体替换该数据源的所属分组）。</summary>
-    private async Task SaveSourceGroupsAsync(SourceItemViewModel item)
-    {
-        if (_api is null || item.Dto.SourceId.StartsWith("pending:", StringComparison.Ordinal))
-        {
-            return;
-        }
-        try
-        {
-            var updated = await _api.SetSourceGroupsAsync(item.Dto.SourceId, item.CheckedGroupIds);
-            item.Update(updated);
-            await RefreshGroupsAsync();   // 各分组的成员数变了
-            Status = updated.GroupIds.Count == 0
-                ? $"「{item.Name}」已移出所有分组"
-                : $"「{item.Name}」的分组已更新";
-        }
-        catch (Exception ex)
-        {
-            AppLog.Error(ex, "保存数据源分组");
-            Status = $"保存分组失败：{ex.Message}";
-        }
-    }
-
-    /// <summary>打开「分组管理」对话框（新建 / 改名 / 删除）。</summary>
+    /// <summary>打开「分组管理」对话框（新建 / 改名 / 删除，以及在组内添加或移出数据源）。</summary>
     [RelayCommand]
     private async Task ManageGroupsAsync()
     {
@@ -446,8 +423,7 @@ public partial class MainViewModel : ObservableObject
                 var item = new SourceItemViewModel(new SourceDto(
                     SourceId: $"pending:{jobId}", Name: Path.GetFileName(path), Path: path, ChunkCount: 0,
                     ImageCount: 0, AddedAt: "", EmbeddedAt: "", Missing: false, EmbedModel: "", EmbedDim: 0,
-                    Stale: false, GroupIds: []),
-                    onGroupsChanged: SaveSourceGroupsAsync)
+                    Stale: false, GroupIds: []))
                 {
                     IsImporting = true,
                     Status = "排队中…",

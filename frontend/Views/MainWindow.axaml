@@ -142,47 +142,14 @@
                                                TextWrapping="Wrap"
                                                IsVisible="{Binding HasStatus}" />
 
-                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0">
-                                        <!-- 分组：点开勾选，勾上立刻保存 -->
-                                        <Button Content="分组" FontSize="12" Padding="10,3"
-                                                ToolTip.Tip="这个数据源属于哪些分组（可多选，勾上即保存）">
-                                            <Button.Flyout>
-                                                <Flyout Placement="Right">
-                                                    <StackPanel Spacing="6" MinWidth="190">
-                                                        <TextBlock Text="放在哪些分组里" FontSize="12" FontWeight="SemiBold" />
-                                                        <TextBlock Text="可以同时属于多个分组"
-                                                                   FontSize="11"
-                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                                                        <ItemsControl ItemsSource="{Binding GroupToggles}">
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate x:DataType="vm:GroupToggleViewModel">
-                                                                    <!-- 单向绑定 + 命令：只有用户点击才保存
-                                                                         （双向绑定会在重建清单时把默认值写回来，误触发保存） -->
-                                                                    <CheckBox Content="{Binding Name}"
-                                                                              IsChecked="{Binding IsChecked, Mode=OneWay}"
-                                                                              Command="{Binding ToggleCommand}"
-                                                                              FontSize="12" />
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
-                                                        <TextBlock Text="还没有分组：点上方的「管理」新建一个"
-                                                                   FontSize="11"
-                                                                   TextWrapping="Wrap"
-                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                                                                   IsVisible="{Binding NoGroupsYet}" />
-                                                    </StackPanel>
-                                                </Flyout>
-                                            </Button.Flyout>
-                                        </Button>
-
-                                        <!-- 移除按钮：轻量级次要按钮 -->
-                                        <Button Content="移除"
-                                                HorizontalAlignment="Left"
-                                                FontSize="12"
-                                                Padding="10,3"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
-                                                CommandParameter="{Binding}" />
-                                    </StackPanel>
+                                    <!-- 分组关系统一在「管理」窗口里维护；卡片只保留只读摘要和移除按钮 -->
+                                    <Button Content="移除"
+                                            HorizontalAlignment="Left"
+                                            FontSize="12"
+                                            Padding="10,3"
+                                            Margin="0,2,0,0"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSourceCommand}"
+                                            CommandParameter="{Binding}" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>

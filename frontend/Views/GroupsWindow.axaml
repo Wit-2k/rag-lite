@@ -3,10 +3,10 @@
         xmlns:vm="using:frontend.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="560"
+        mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="740"
         x:Class="frontend.Views.GroupsWindow"
         x:DataType="vm:GroupsViewModel"
-        Title="分组管理" Width="580" Height="560"
+        Title="分组管理" Width="720" Height="760"
         Icon="/Assets/book.ico"
         WindowStartupLocation="CenterOwner"
         TransparencyLevelHint="Mica,AcrylicBlur"
@@ -33,14 +33,14 @@
             </Grid>
         </Border>
 
-        <!-- 顶部：说明 + 新建 -->
+        <!-- 顶部：说明 + 新建分组 -->
         <StackPanel DockPanel.Dock="Top" Spacing="10">
             <TextBlock Text="分组管理" FontSize="16" FontWeight="SemiBold"
                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
             <TextBlock FontSize="12"
                        TextWrapping="Wrap"
                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                       Text="分组只决定「检索范围」：会话绑定某个分组后，提问只在该分组的数据源里检索，数据源本身不会被搬动。一个数据源可以同时属于多个分组；删掉分组后，组里的数据源回到「未分组」。" />
+                       Text="分组只决定「检索范围」：会话绑定某个分组后，提问只在该分组的数据源里检索，数据源本身不会被搬动。新建分组后，在组内从下拉里添加数据源；一个数据源可以同时属于多个分组；删掉分组后，组里的数据源回到「未分组」。" />
 
             <Grid ColumnDefinitions="*,Auto">
                 <TextBox Grid.Column="0"
@@ -54,9 +54,9 @@
             </Grid>
         </StackPanel>
 
-        <!-- 分组列表 -->
+        <!-- 分组列表：每组带成员清单和可添加的数据源下拉 -->
         <Grid Margin="0,12,0,0">
-            <TextBlock Text="还没有分组。新建一个，然后在左侧数据源卡片上点「分组」把它放进去。"
+            <TextBlock Text="还没有分组。新建一个，然后在组内添加数据源。"
                        FontSize="12"
                        TextWrapping="Wrap"
                        Foreground="{DynamicResource TextFillColorTertiaryBrush}"
@@ -80,39 +80,91 @@
                                 BorderThickness="1"
                                 CornerRadius="6"
                                 Padding="10,8">
-                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                                <TextBox Grid.Row="0" Grid.Column="0"
-                                         Text="{Binding Name}"
-                                         FontSize="13" />
+                            <StackPanel Spacing="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding Name}"
+                                             FontSize="13" />
 
-                                <StackPanel Grid.Row="0" Grid.Column="1"
-                                            Orientation="Horizontal" Spacing="4"
-                                            VerticalAlignment="Center">
-                                    <Button Content="改名" FontSize="12"
-                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).RenameCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="保存这一行的名字" />
-                                    <Button Content="×" FontSize="12" Padding="6,2"
-                                            IsVisible="{Binding !IsConfirmingDelete}"
-                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).DeleteCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="删除分组" />
-                                    <Button Content="确定删除"
-                                            IsVisible="{Binding IsConfirmingDelete}"
-                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).DeleteCommand}"
-                                            CommandParameter="{Binding}" />
-                                    <Button Content="取消"
-                                            IsVisible="{Binding IsConfirmingDelete}"
-                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).CancelDeleteCommand}"
-                                            CommandParameter="{Binding}" />
-                                </StackPanel>
+                                    <StackPanel Grid.Column="1"
+                                                Orientation="Horizontal" Spacing="4"
+                                                VerticalAlignment="Center">
+                                        <Button Content="改名" FontSize="12"
+                                                Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).RenameCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="保存这一行的名字" />
+                                        <Button Content="×" FontSize="12" Padding="6,2"
+                                                IsVisible="{Binding !IsConfirmingDelete}"
+                                                Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).DeleteCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="删除分组" />
+                                        <Button Content="确定删除"
+                                                IsVisible="{Binding IsConfirmingDelete}"
+                                                Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).DeleteCommand}"
+                                                CommandParameter="{Binding}" />
+                                        <Button Content="取消"
+                                                IsVisible="{Binding IsConfirmingDelete}"
+                                                Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).CancelDeleteCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
+                                </Grid>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                           Text="{Binding Subtitle}"
+                                <TextBlock Text="{Binding Subtitle}"
                                            FontSize="11"
-                                           Margin="0,4,0,0"
                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                            </Grid>
+
+                                <!-- 组内成员：每行右侧可以直接移出 -->
+                                <ItemsControl ItemsSource="{Binding Members}"
+                                              IsVisible="{Binding HasMembers}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GroupSourceViewModel">
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                <Button Grid.Column="1"
+                                                        Content="移出"
+                                                        FontSize="11"
+                                                        Padding="8,2"
+                                                        Margin="8,0,0,0"
+                                                        Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).RemoveSourceCommand}"
+                                                        CommandParameter="{Binding}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Text="{Binding MemberHint}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                           IsVisible="{Binding !HasMembers}" />
+
+                                <!-- 从「还没加入这个组」的数据源里选一个添加 -->
+                                <Grid ColumnDefinitions="*,Auto"
+                                      Margin="0,2,0,0"
+                                      IsVisible="{Binding HasAvailable}">
+                                    <ComboBox Grid.Column="0"
+                                              ItemsSource="{Binding AvailableSources}"
+                                              SelectedItem="{Binding SelectedSource}"
+                                              DisplayMemberBinding="{Binding Name}"
+                                              PlaceholderText="选择要加入的数据源"
+                                              FontSize="12" />
+                                    <Button Grid.Column="1"
+                                            Content="添加"
+                                            FontSize="12"
+                                            Padding="12,3"
+                                            Margin="8,0,0,0"
+                                            Command="{Binding $parent[Window].((vm:GroupsViewModel)DataContext).AddSourceCommand}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+
+                                <TextBlock Text="{Binding AvailableHint}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                           IsVisible="{Binding !HasAvailable}" />
+                            </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

@@ -1,5 +1,5 @@
-// 「分组管理」窗口的 ViewModel：新建 / 改名 / 删除数据源分组。
-// 每次改动都立刻打后端——删不掉（还有会话在用）时要当场把原因给用户看。
+// 「分组管理」窗口的 ViewModel：新建 / 改名 / 删除分组，并在组内添加或移出数据源。
+// 每次改动都立刻打后端——删不掉（还有会话在用）或添加失败时要当场把原因给用户看。
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -8,13 +8,40 @@ using frontend.Services;
 
 namespace frontend.ViewModels;
 
-/// <summary>对话框里的一行分组。</summary>
+/// <summary>分组里的一位成员：带上它所属的分组 id，移出时才知道从哪个组里删。</summary>
+public sealed class GroupSourceViewModel
+{
+    public GroupSourceViewModel(string groupId, SourceDto source)
+    {
+        GroupId = groupId;
+        Source = source;
+    }
+
+    public string GroupId { get; }
+
+    public SourceDto Source { get; }
+
+    public string Name => Source.Name;
+}
+
+/// <summary>对话框里的一行分组，带成员清单和「可添加的数据源」。</summary>
 public partial class GroupRowViewModel : ObservableObject
 {
-    public GroupRowViewModel(GroupDto dto)
+    public GroupRowViewModel(GroupDto dto, IReadOnlyList<SourceDto> sources)
     {
         Dto = dto;
         Name = dto.Name;
+
+        // 成员与可添加项都在打开窗口时一次性算好；添加/移出后 ViewModel 会重新拉取并重建这一行
+        foreach (var source in sources.Where(item => item.GroupIds.Contains(dto.GroupId)))
+        {
+            Members.Add(new GroupSourceViewModel(dto.GroupId, source));
+        }
+        foreach (var source in sources.Where(item => !item.GroupIds.Contains(dto.GroupId)))
+        {
+            AvailableSources.Add(source);
+        }
+        SelectedSource = AvailableSources.FirstOrDefault();
     }
 
     public GroupDto Dto { get; private set; }
@@ -29,17 +56,25 @@ public partial class GroupRowViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsConfirmingDelete { get; set; }
 
+    /// <summary>组内成员。</summary>
+    public ObservableCollection<GroupSourceViewModel> Members { get; } = [];
+
+    /// <summary>还没加入这个分组的数据源，供下拉选择。</summary>
+    public ObservableCollection<SourceDto> AvailableSources { get; } = [];
+
+    /// <summary>「添加数据源」下拉当前选中的源。</summary>
+    [ObservableProperty]
+    public partial SourceDto? SelectedSource { get; set; }
+
     public string Subtitle => $"{Dto.SourceCount} 个数据源";
 
-    public void Update(GroupDto dto)
-    {
-        Dto = dto;
-        if (Name != dto.Name)
-        {
-            Name = dto.Name;   // 改完名/刷新后对齐
-        }
-        OnPropertyChanged(nameof(Subtitle));
-    }
+    public bool HasMembers => Members.Count > 0;
+
+    public bool HasAvailable => AvailableSources.Count > 0;
+
+    public string MemberHint => HasMembers ? "" : "还没有数据源，从下面选一个加进来。";
+
+    public string AvailableHint => HasAvailable ? "" : "所有数据源都已加入这个分组。";
 }
 
 public partial class GroupsViewModel : ObservableObject
@@ -69,16 +104,21 @@ public partial class GroupsViewModel : ObservableObject
 
     public bool IsEmpty => Groups.Count == 0;
 
-    /// <summary>窗口打开时拉一次列表。</summary>
+    /// <summary>窗口打开时拉一次分组与数据源，给每组算出成员和可添加项。</summary>
     public async Task LoadAsync()
     {
         try
         {
-            var rows = await _api.ListGroupsAsync();
+            var groupsTask = _api.ListGroupsAsync();
+            var sourcesTask = _api.ListSourcesAsync();
+            await Task.WhenAll(groupsTask, sourcesTask);
+
+            var groups = await groupsTask;
+            var sources = await sourcesTask;
             Groups.Clear();
-            foreach (var row in rows)
+            foreach (var row in groups)
             {
-                Groups.Add(new GroupRowViewModel(row));
+                Groups.Add(new GroupRowViewModel(row, sources));
             }
             OnPropertyChanged(nameof(IsEmpty));
         }
@@ -153,6 +193,32 @@ public partial class GroupsViewModel : ObservableObject
         {
             row.IsConfirmingDelete = false;
         }
+    }
+
+    /// <summary>把下拉里选中的数据源加入当前分组；保留它在其他分组里的归属。</summary>
+    [RelayCommand]
+    private async Task AddSourceAsync(GroupRowViewModel? row)
+    {
+        if (row?.SelectedSource is null)
+        {
+            Error = "先从下拉里选一个数据源";
+            return;
+        }
+        var source = row.SelectedSource;
+        var groupIds = source.GroupIds.Append(row.GroupId).Distinct().ToList();
+        await RunAsync(() => _api.SetSourceGroupsAsync(source.SourceId, groupIds), "添加数据源");
+    }
+
+    /// <summary>把某个数据源移出它所在的分组；其他分组的归属保持不变。</summary>
+    [RelayCommand]
+    private async Task RemoveSourceAsync(GroupSourceViewModel? member)
+    {
+        if (member is null)
+        {
+            return;
+        }
+        var groupIds = member.Source.GroupIds.Where(id => id != member.GroupId).ToList();
+        await RunAsync(() => _api.SetSourceGroupsAsync(member.Source.SourceId, groupIds), "移出数据源");
     }
 
     /// <summary>跑一次写操作：清掉旧错误 → 打接口 → 重新拉列表 → 通知主界面。</summary>
