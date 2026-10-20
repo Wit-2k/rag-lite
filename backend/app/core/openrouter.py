@@ -459,6 +459,53 @@ def embed_texts(
     return EmbedResult(vectors=vectors, usage=usage, dim=dim)
 
 
+def embed_image_bytes(
+    data: bytes,
+    *,
+    mime: str,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    dim: int = DEFAULT_DIM,
+    base_url: str = DEFAULT_EMBED_BASE_URL,
+    input_type: str | None = "search_query",
+    timeout_s: float = 120.0,
+    max_retries: int = 4,
+    session: requests.Session | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> EmbedResult:
+    """把一张查询图片直接嵌入成向量（以图搜图用），不需要落临时文件。"""
+    if dim not in ALLOWED_DIMS:
+        raise OpenRouterError(f"dimensions 只能是 {ALLOWED_DIMS}，收到 {dim}")
+    if not data:
+        raise OpenRouterError("图片内容为空")
+
+    encoded = base64.b64encode(data).decode("ascii")
+    item = {
+        "content": [
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
+        ]
+    }
+    client = _Client(
+        api_key=api_key,
+        url=endpoint_url(base_url, EMBED_PATH),
+        timeout_s=timeout_s,
+        max_retries=max_retries,
+        session=session,
+        sleep=sleep,
+    )
+    vectors, usage = _run_embed_tasks(
+        client,
+        [([0], [item])],
+        model=model,
+        dim=dim,
+        input_type=input_type,
+        total=1,
+        workers=1,
+        on_progress=None,
+    )
+    return EmbedResult(vectors=vectors, usage=usage, dim=dim)
+
+
 def embed_blocks(
     blocks: Sequence[Block],
     *,

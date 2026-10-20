@@ -8,6 +8,7 @@ r"""HTTP 接口的测试。
 
 from __future__ import annotations
 
+import base64
 import json
 import threading
 import time
@@ -369,6 +370,73 @@ def test_unknown_job_404(client: TestClient) -> None:
 def new_session(client: TestClient) -> str:
     """聊天现在必须带 session_id（历史存库里、按会话取），所以先建一个会话。"""
     return client.post("/api/sessions", json={}).json()["session_id"]
+
+
+def test_image_search_returns_image_matches(
+    client: TestClient, store: Store, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_dir = settings.root / "图片集"
+    (source_dir / "images").mkdir(parents=True)
+    image = source_dir / "images" / "a.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    store.upsert_source(
+        {
+            "source_id": "src_images",
+            "name": "图片集",
+            "path": str(source_dir),
+            "sha256": "images",
+            "chunk_count": 1,
+            "image_count": 1,
+            "embed_model": "fake",
+            "embed_dim": DIM,
+            "added_at": utc_now(),
+            "embedded_at": utc_now(),
+        }
+    )
+    store.add_chunks(
+        [
+            chunk_row(
+                chunk_id="src_images_00000",
+                source_id="src_images",
+                vector=[1.0, 0.0, 0.0, 0.0],
+                blocking={
+                    "heading": "图片：images/a.png",
+                    "text": "",
+                    "kind": "image",
+                    "start": 0,
+                    "end": 0,
+                    "char_count": 0,
+                    "images": ["a.png"],
+                },
+                rel_path="images/a.png",
+                embedded_at=utc_now(),
+            )
+        ]
+    )
+
+    monkeypatch.setattr(
+        routes_module,
+        "embed_image_bytes",
+        lambda *args, **kwargs: EmbedResult(
+            vectors=[[1.0, 0.0, 0.0, 0.0]], usage=EmbedUsage(requests=1), dim=DIM
+        ),
+    )
+
+    response = client.post(
+        "/api/search/image",
+        json={
+            "image_base64": base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode(),
+            "mime": "image/png",
+            "top_k": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["name"] == "图片集"
+    assert items[0]["image_path"].endswith("a.png")
+    assert items[0]["score"] == 1.0
 
 
 def test_chat_streams_sources_tokens_done(client: TestClient) -> None:

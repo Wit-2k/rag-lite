@@ -116,6 +116,29 @@ class SessionGroupIn(BaseModel):
     group_id: str | None = None
 
 
+class ImageSearchIn(BaseModel):
+    """以图搜图：前端把图片转成 base64 传来，后端校验格式后嵌入。"""
+
+    image_base64: str = Field(min_length=1, max_length=20_000_000)
+    mime: str = "image/jpeg"
+    top_k: int = Field(default=12, ge=1, le=50)
+
+
+class ImageSearchItem(BaseModel):
+    """一条图片检索结果；`image_path` 是本机绝对路径，前端直接缩略图预览。"""
+
+    rank: int
+    source_id: str
+    name: str
+    heading: str
+    image_path: str
+    score: float
+
+
+class ImageSearchOut(BaseModel):
+    items: list[ImageSearchItem] = []
+
+
 class JobAcceptedOut(BaseModel):
     """耗时任务（导入）的受理回执，前端拿 job_id 去轮询进度。"""
 

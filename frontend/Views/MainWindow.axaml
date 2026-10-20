@@ -315,24 +315,60 @@
                         BorderThickness="1"
                         CornerRadius="8"
                         Padding="4">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBox x:Name="QuestionBox"
-                                 Text="{Binding Question}"
-                                 PlaceholderText="输入问题…（回车发送）"
-                                 AcceptsReturn="False"
-                                 KeyDown="OnQuestionKeyDown"
-                                 BorderThickness="0"
-                                 Background="Transparent"
-                                 VerticalAlignment="Center"
-                                 Padding="10,8" />
-                        <Button Grid.Column="1"
-                                Content="发送"
-                                Classes="accent"
-                                Command="{Binding SendCommand}"
-                                IsEnabled="{Binding IsReady}"
-                                Padding="16,8"
-                                Margin="4,0,2,0" />
-                    </Grid>
+                    <StackPanel Spacing="6">
+                        <!-- 以图搜图的查询图预览 -->
+                        <Border IsVisible="{Binding HasSelectedImage}"
+                                Background="{DynamicResource RagSurface}"
+                                BorderBrush="{DynamicResource RagHairline}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="6"
+                                Margin="4,4,4,0">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Image Source="{Binding SelectedImagePreview}"
+                                       Width="64" Height="48"
+                                       Stretch="UniformToFill" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding SelectedImageName}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           Margin="8,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <Button Grid.Column="2"
+                                        Content="移除"
+                                        FontSize="12"
+                                        Padding="10,4"
+                                        Command="{Binding RemoveImageCommand}" />
+                            </Grid>
+                        </Border>
+
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBox x:Name="QuestionBox"
+                                     Text="{Binding Question}"
+                                     PlaceholderText="输入问题…（回车发送）"
+                                     AcceptsReturn="False"
+                                     KeyDown="OnQuestionKeyDown"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     VerticalAlignment="Center"
+                                     Padding="10,8" />
+                            <Button Grid.Column="1"
+                                    Content="添加图片"
+                                    Command="{Binding AddImageCommand}"
+                                    IsEnabled="{Binding !IsAsking}"
+                                    Padding="12,8"
+                                    Margin="4,0"
+                                    ToolTip.Tip="选择 PNG / JPEG 图片进行以图搜图" />
+                            <Button Grid.Column="2"
+                                    Content="发送"
+                                    Classes="accent"
+                                    Command="{Binding SendCommand}"
+                                    IsEnabled="{Binding IsReady}"
+                                    Padding="16,8"
+                                    Margin="4,0,2,0" />
+                        </Grid>
+                    </StackPanel>
                 </Border>
 
                 <!-- 消息滚动列表：区分用户与助手气泡 -->
@@ -380,8 +416,51 @@
                                                            TextWrapping="Wrap" />
                                             </Border>
 
+                                            <!-- 以图搜图的标题（纯文本；有图片结果时不走 Markdown） -->
+                                            <TextBlock Text="{Binding Content}"
+                                                       FontSize="13.5"
+                                                       TextWrapping="Wrap"
+                                                       IsVisible="{Binding HasImageResults}"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+
+                                            <!-- 以图搜图：命中的图片缩略图 -->
+                                            <ItemsControl ItemsSource="{Binding ImageResults}"
+                                                          IsVisible="{Binding HasImageResults}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel Orientation="Horizontal" />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:ImageSearchResultViewModel">
+                                                        <Border Width="180"
+                                                                Margin="0,0,8,8"
+                                                                Padding="6"
+                                                                Background="{DynamicResource RagSurface}"
+                                                                BorderBrush="{DynamicResource RagHairline}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="6"
+                                                                ToolTip.Tip="{Binding Heading}">
+                                                            <StackPanel Spacing="4">
+                                                                <Image Source="{Binding Image}"
+                                                                       Width="164" Height="120"
+                                                                       Stretch="UniformToFill" />
+                                                                <TextBlock Text="{Binding Name}"
+                                                                           FontSize="12"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                                <TextBlock Text="{Binding ScoreText}"
+                                                                           FontSize="11"
+                                                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
                                             <!-- Markdown 渲染输出（列表、公式、代码高亮） -->
-                                            <md:MarkdownScrollViewer Markdown="{Binding Content}" />
+                                            <md:MarkdownScrollViewer Markdown="{Binding Content}"
+                                                                     IsVisible="{Binding !HasImageResults}" />
 
                                             <!-- 耗时与 Token 元信息 -->
                                             <TextBlock Text="{Binding Meta}"

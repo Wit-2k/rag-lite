@@ -12,6 +12,13 @@ public interface IFolderPicker
 }
 
 
+/// <summary>选一张查询图片（PNG/JPEG）；用户取消返回 null。</summary>
+public interface IImagePicker
+{
+    Task<string?> PickImageAsync();
+}
+
+
 /// <summary>
 /// 设置对话框。ViewModel 只认这个接口，窗口负责实现；对话框本身不发网络请求——
 /// 它只编辑传进来的 DTO，保存由 ViewModel 调 ApiClient 完成。

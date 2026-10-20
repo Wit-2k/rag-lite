@@ -21,6 +21,7 @@ from app.core.openrouter import (
     EmbedUsage,
     OpenRouterError,
     embed_blocks,
+    embed_image_bytes,
     embed_texts,
     read_api_key,
     rerank,
@@ -303,6 +304,24 @@ def test_image_block_goes_alone_as_data_uri(tmp_path: Path) -> None:
     assert len(result.vectors) == 2
     assert result.usage.image_tokens == 135
     assert result.usage.cost_usd == pytest.approx(0.00014)
+
+
+def test_embed_image_bytes_sends_only_image_as_query() -> None:
+    session = FakeSession([FakeResponse(200, embedding_response(1))])
+
+    result = embed_image_bytes(
+        b"\xff\xd8\xff\xe0jpeg",
+        mime="image/jpeg",
+        api_key="k",
+        session=session,
+        sleep=no_sleep,
+    )
+
+    assert len(result.vectors) == 1
+    payload = session.calls[0]["payload"]
+    assert payload["input_type"] == "search_query"
+    item = payload["input"][0]
+    assert [part["type"] for part in item["content"]] == ["image_url"]
 
 
 def test_image_only_block_omits_empty_text_part(tmp_path: Path) -> None:

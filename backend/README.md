@@ -14,7 +14,7 @@
 ```bash
 uv sync                                  # 装依赖
 cp .env.example .env                     # 然后把 OPENROUTER_API_KEY 填进去（.env 已被 git 忽略）
-uv run pytest -q                         # 200 条测试，默认只有 3 条会真打接口
+uv run pytest -q                         # 203 条测试，默认只有 3 条会真打接口
 uv run python main.py                    # 起服务，默认 127.0.0.1:17650
 ```
 
@@ -73,6 +73,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | POST | `/api/groups` | 新建分组（重名或保留名返回 409） |
 | PUT | `/api/groups/{id}` | 重命名分组 |
 | DELETE | `/api/groups/{id}` | 删除分组；还有会话在用时返回 409 并列出会话 |
+| POST | `/api/search/image` | 以图搜图：base64 图片嵌入后只在纯图片块中检索，返回最多 12 条 |
 | POST | `/api/chat` | 提问，返回 SSE：`sources` → `token`… → `done`（或 `error`） |
 | POST | `/api/chat/clear` | 清空某个会话的对话上下文 |
 | GET | `/api/settings` | 当前生效配置（密钥只回固定圆点，不露任何片段；附 `.env` 路径与库维度） |
@@ -86,7 +87,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 ```
 main.py                  入口：选端口 → uvicorn → 打印握手
 app/config.py            配置：命令行 > 环境变量 > .env > 默认
-app/api/                 HTTP 层：models（DTO）/ jobs（后台任务）/ routes（20 个端点）/ server（组装）
+app/api/                 HTTP 层：models（DTO）/ jobs（后台任务）/ routes（21 个端点）/ server（组装）
 app/core/chunking.py     分块：标题切 section、表格/代码保持原子、图片按区间归属
 app/core/openrouter.py   云端调用：嵌入、重排、流式对话（共用一套重试/退避）
 app/core/store.py        LanceDB 读写：建表、写入、余弦检索、删除

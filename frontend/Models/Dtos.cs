@@ -182,6 +182,20 @@ public sealed record ChatFrameDto(
     double? Seconds,
     string? Message);
 
+/// <summary>以图搜图请求：图片 base64 + MIME + 返回条数。</summary>
+public sealed record ImageSearchRequestDto(string ImageBase64, string Mime, int TopK);
+
+/// <summary>一张命中的图片。</summary>
+public sealed record ImageSearchItemDto(
+    int Rank,
+    string SourceId,
+    string Name,
+    string Heading,
+    string ImagePath,
+    double Score);
+
+public sealed record ImageSearchResponseDto(IReadOnlyList<ImageSearchItemDto> Items);
+
 /// <summary>通用的错误体（后端 HTTPException 返回 {"detail": "..."}）。</summary>
 public sealed record ErrorDto(string Detail);
 
@@ -215,6 +229,9 @@ public sealed record ErrorDto(string Detail);
 [JsonSerializable(typeof(SettingsDto))]
 [JsonSerializable(typeof(SettingsUpdateDto))]
 [JsonSerializable(typeof(ChatFrameDto))]
+[JsonSerializable(typeof(ImageSearchRequestDto))]
+[JsonSerializable(typeof(ImageSearchResponseDto))]
+[JsonSerializable(typeof(IReadOnlyList<ImageSearchItemDto>))]
 [JsonSerializable(typeof(ErrorDto))]
 public partial class ApiJson : JsonSerializerContext;
 

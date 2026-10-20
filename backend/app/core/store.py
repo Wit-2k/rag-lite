@@ -131,13 +131,22 @@ class Store:
         *,
         top_k: int = 20,
         source_ids: Iterable[str] | None = None,
+        image_only: bool = False,
     ) -> list[dict]:
-        """余弦近邻检索，返回按距离升序的结果（`_distance` = 1 - 余弦相似度，越小越像）。"""
+        """余弦近邻检索，返回按距离升序的结果（`_distance` = 1 - 余弦相似度，越小越像）。
+
+        `image_only=True` 只搜纯图片块，给以图搜图用，避免文本块挤占图片结果。
+        """
         if len(vector) != self.dim:
             raise StoreError(f"查询向量维度不符：期望 {self.dim}，实际 {len(vector)}")
         query = self.chunks.search(list(vector), vector_column_name="vector").metric("cosine")
+        conditions: list[str] = []
         ids = list(source_ids) if source_ids is not None else []
         if ids:
             quoted = ", ".join(f"'{item}'" for item in ids)
-            query = query.where(f"source_id IN ({quoted})", prefilter=True)
+            conditions.append(f"source_id IN ({quoted})")
+        if image_only:
+            conditions.append("kind = 'image'")
+        if conditions:
+            query = query.where(" AND ".join(conditions), prefilter=True)
         return query.select(SEARCH_COLUMNS).limit(top_k).to_list()

@@ -127,6 +127,37 @@ def test_search_can_filter_by_source(tmp_path: Path) -> None:
     assert [hit["source_id"] for hit in only_b] == ["src_b"]
 
 
+def test_search_can_filter_to_image_blocks(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    store.add_chunks(
+        [
+            row(1, vec(1, 0), text="纯文本"),
+            chunk_row(
+                chunk_id="src_a_00002",
+                source_id="src_a",
+                vector=vec(1, 0),
+                blocking={
+                    "heading": "图片：images/a.jpg",
+                    "text": "",
+                    "kind": "image",
+                    "start": 0,
+                    "end": 0,
+                    "char_count": 0,
+                    "images": ["a.jpg"],
+                },
+                rel_path="images/a.jpg",
+                embedded_at=utc_now(),
+            ),
+        ]
+    )
+
+    hits = store.search(vec(1, 0), top_k=10, image_only=True)
+
+    assert len(hits) == 1
+    assert hits[0]["kind"] == "image"
+    assert hits[0]["rel_path"] == "images/a.jpg"
+
+
 def test_search_rejects_wrong_dimension(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     with pytest.raises(StoreError, match="维度不符"):

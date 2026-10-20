@@ -14,7 +14,7 @@ using frontend.ViewModels;
 
 namespace frontend.Views;
 
-public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroupsDialog
+public partial class MainWindow : Window, IFolderPicker, IImagePicker, ISettingsDialog, IGroupsDialog
 {
     private MainViewModel? _viewModel;
 
@@ -161,6 +161,21 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroup
             .Where(path => !string.IsNullOrEmpty(path))
             .Select(path => path!)
             .ToList();
+    }
+
+    /// <summary>选择一张查询图片（IImagePicker 的实现）。</summary>
+    public async Task<string?> PickImageAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择图片（PNG / JPEG）",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("图片") { Patterns = ["*.png", "*.jpg", "*.jpeg"] },
+            ],
+        });
+        return files.FirstOrDefault()?.TryGetLocalPath();
     }
 
     /// <summary>弹出设置窗口（ISettingsDialog 的实现）。对话框不做 I/O，保存交给 ViewModel。</summary>

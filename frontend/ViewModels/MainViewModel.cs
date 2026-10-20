@@ -2,6 +2,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FluentAvalonia.UI.Controls;
@@ -19,6 +20,7 @@ public partial class MainViewModel : ObservableObject
 
     private readonly BackendProcess _backend;
     private readonly IFolderPicker _picker;
+    private readonly IImagePicker _imagePicker;
     private readonly ISettingsDialog _settingsDialog;
     private readonly IGroupsDialog _groupsDialog;
     private readonly StringBuilder _pending = new();
@@ -32,10 +34,15 @@ public partial class MainViewModel : ObservableObject
     private bool _switchingSession;   // 切换会话时装载消息，避免与列表刷新互相触发
 
     public MainViewModel(
-        BackendProcess backend, IFolderPicker picker, ISettingsDialog settingsDialog, IGroupsDialog groupsDialog)
+        BackendProcess backend,
+        IFolderPicker picker,
+        IImagePicker imagePicker,
+        ISettingsDialog settingsDialog,
+        IGroupsDialog groupsDialog)
     {
         _backend = backend;
         _picker = picker;
+        _imagePicker = imagePicker;
         _settingsDialog = settingsDialog;
         _groupsDialog = groupsDialog;
     }
@@ -59,6 +66,20 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool IsAsking { get; set; }
+
+    /// <summary>以图搜图选中的本地图片（空串 = 没选）。</summary>
+    [ObservableProperty]
+    public partial string SelectedImagePath { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string SelectedImageName { get; set; } = "";
+
+    [ObservableProperty]
+    public partial Bitmap? SelectedImagePreview { get; set; }
+
+    public bool HasSelectedImage => SelectedImagePath.Length > 0;
+
+    partial void OnSelectedImagePathChanged(string value) => OnPropertyChanged(nameof(HasSelectedImage));
 
     [ObservableProperty]
     public partial HealthDto? Health { get; set; }
@@ -908,12 +929,126 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>选择一张 PNG/JPEG 作为以图搜图的查询图。</summary>
+    [RelayCommand]
+    private async Task AddImageAsync()
+    {
+        if (IsAsking)
+        {
+            return;
+        }
+        var path = await _imagePicker.PickImageAsync();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".png" or ".jpg" or ".jpeg"))
+        {
+            Status = "只支持 PNG 和 JPEG（jpg/jpeg）图片";
+            return;
+        }
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var bitmap = Bitmap.DecodeToWidth(stream, 240);
+            SelectedImagePreview?.Dispose();
+            SelectedImagePreview = bitmap;
+            SelectedImagePath = path;
+            SelectedImageName = Path.GetFileName(path);
+            Status = $"已选择图片：{SelectedImageName}，点「发送」开始以图搜图";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "加载查询图片");
+            Status = $"图片无法读取：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveImage() => ClearSelectedImage();
+
+    private void ClearSelectedImage()
+    {
+        SelectedImagePreview?.Dispose();
+        SelectedImagePreview = null;
+        SelectedImagePath = "";
+        SelectedImageName = "";
+    }
+
+    /// <summary>以图搜图：图片嵌入后在纯图片块里检索，结果以缩略图展示。</summary>
+    private async Task SearchByImageAsync()
+    {
+        if (_api is null || IsAsking)
+        {
+            return;
+        }
+        if (CurrentSession is null)
+        {
+            await NewSessionAsync();
+            if (CurrentSession is null)
+            {
+                return;
+            }
+        }
+
+        var path = SelectedImagePath;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        var mime = ext == ".png" ? "image/png" : "image/jpeg";
+        Messages.Add(new MessageViewModel(isUser: true, content: $"以图搜图：{SelectedImageName}"));
+        var answer = new MessageViewModel(isUser: false, content: "正在检索相似图片…");
+        Messages.Add(answer);
+        IsAsking = true;
+        Status = "以图搜图：嵌入中…";
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(path);
+            var result = await _api.SearchByImageAsync(bytes, mime);
+            var items = new List<ImageSearchResultViewModel>();
+            foreach (var item in result.Items)
+            {
+                try
+                {
+                    items.Add(new ImageSearchResultViewModel(item));
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error(ex, $"加载检索图片 {item.ImagePath}");
+                }
+            }
+            answer.Content = items.Count == 0 ? "没有找到相似图片。" : $"找到 {items.Count} 张相似图片：";
+            answer.SetImageResults(items);
+            Status = items.Count == 0 ? "没有找到相似图片" : $"命中 {items.Count} 张相似图片";
+            Question = "";
+            ClearSelectedImage();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "以图搜图");
+            answer.Content = $"⚠️ 以图搜图失败：{ex.Message}";
+            Status = "以图搜图失败";
+        }
+        finally
+        {
+            IsAsking = false;
+        }
+    }
+
     /// <summary>发送提问，边收边显示。</summary>
     [RelayCommand]
     private async Task SendAsync()
     {
+        if (_api is null || IsAsking)
+        {
+            return;
+        }
+        if (HasSelectedImage)
+        {
+            await SearchByImageAsync();
+            return;
+        }
         var question = Question.Trim();
-        if (_api is null || question.Length == 0 || IsAsking)
+        if (question.Length == 0)
         {
             return;
         }

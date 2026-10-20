@@ -1,11 +1,12 @@
 """HTTP 路由：就绪探测、数据源管理与导入、对话（SSE）。
 
-二十个端点按功能分段放在一个文件里（健康 / 数据源 / 任务 / 会话 / 分组 / 聊天 / 设置），拆成多个文件反而增加跳转成本。
+二十一个端点按功能分段放在一个文件里（健康 / 数据源 / 任务 / 会话 / 分组 / 以图搜图 / 聊天 / 设置），拆成多个文件反而增加跳转成本。
 对话是 SSE：`data: {...}\\n\\n` 逐帧推，前端按 `type` 分派（sources / token / done / error）。
 """
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -21,6 +22,9 @@ from app.api.models import (
     GroupCreateIn,
     GroupOut,
     GroupRenameIn,
+    ImageSearchIn,
+    ImageSearchItem,
+    ImageSearchOut,
     MessageOut,
     SessionCreateIn,
     SessionGroupIn,
@@ -40,7 +44,7 @@ from app.config import EDITABLE_FIELDS, ENV_NAMES, mask_secret, update_env_file
 from app.core.chunking import image_files
 from app.core.groups import GroupStore
 from app.core.ingest import ingest, remove_source
-from app.core.openrouter import ALLOWED_DIMS
+from app.core.openrouter import ALLOWED_DIMS, embed_image_bytes
 from app.core.query import ChatSession, DoneEvent, RetrievalEvent, TokenEvent
 from app.core.schema import source_id_for
 from app.core.sessions import DEFAULT_TITLE, NO_SOURCES_SCOPE, SessionStore
@@ -254,6 +258,89 @@ def retrieval_scope(request: Request, session_id: str) -> list[str] | None:
     if groups.get(group_id) is None:
         return None
     return groups.sources_of(group_id)
+
+
+# ---------------------------------------------------------------- 以图搜图
+
+
+def _resolve_hit_image(row: dict, hit: dict) -> Path | None:
+    """把检索命中的图片还原成本机绝对路径。"""
+    base = Path(row["path"])
+    rel = str(hit.get("rel_path") or "")
+    if rel:
+        exact = base / rel
+        if exact.is_file():
+            return exact
+    for name in hit.get("images") or ():
+        for candidate in (base / "images" / name, base / name):
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+@router.post(
+    "/search/image",
+    response_model=ImageSearchOut,
+    responses={400: {"model": ErrorOut}, 502: {"model": ErrorOut}},
+)
+def search_by_image(payload: ImageSearchIn, request: Request) -> ImageSearchOut:
+    """以图搜图：查询图片嵌入后，只在纯图片块里做余弦检索。"""
+    settings = request.app.state.settings
+    if not settings.configured:
+        raise HTTPException(status_code=400, detail="还没有配置 OPENROUTER_API_KEY，无法进行图片嵌入")
+
+    mime = payload.mime.lower()
+    if mime == "image/jpg":
+        mime = "image/jpeg"
+    if mime not in {"image/png", "image/jpeg"}:
+        raise HTTPException(status_code=400, detail="只支持 PNG 和 JPEG（jpg/jpeg）图片")
+    try:
+        data = base64.b64decode(payload.image_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"图片 base64 无效：{exc}") from exc
+    if not data:
+        raise HTTPException(status_code=400, detail="图片内容为空")
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片不能超过 10MB")
+    if mime == "image/png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=400, detail="文件内容不是有效的 PNG")
+    if mime == "image/jpeg" and not data.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(status_code=400, detail="文件内容不是有效的 JPEG")
+
+    try:
+        embedded = embed_image_bytes(
+            data,
+            mime=mime,
+            api_key=settings.embed_key,
+            model=settings.embed_model,
+            dim=settings.embed_dim,
+            base_url=settings.embed_base_url,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"图片嵌入失败：{exc}") from exc
+
+    store = get_store(request)
+    hits = store.search(embedded.vectors[0], top_k=payload.top_k, image_only=True)
+    source_rows = {row["source_id"]: row for row in store.list_sources()}
+    items: list[ImageSearchItem] = []
+    for rank, hit in enumerate(hits, start=1):
+        row = source_rows.get(hit["source_id"])
+        if row is None:
+            continue
+        image_path = _resolve_hit_image(row, hit)
+        if image_path is None:
+            continue
+        items.append(
+            ImageSearchItem(
+                rank=rank,
+                source_id=hit["source_id"],
+                name=row["name"],
+                heading=hit["heading"],
+                image_path=str(image_path),
+                score=round(1.0 - float(hit.get("_distance") or 0.0), 4),
+            )
+        )
+    return ImageSearchOut(items=items)
 
 
 # ---------------------------------------------------------------- 会话

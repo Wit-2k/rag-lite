@@ -78,6 +78,24 @@ public sealed class ApiClient : IDisposable
         }
     }
 
+    /// <summary>以图搜图：把图片字节交给后端嵌入并检索，返回命中的图片。</summary>
+    public async Task<ImageSearchResponseDto> SearchByImageAsync(
+        byte[] image, string mime, int topK = 12, CancellationToken cancellationToken = default)
+    {
+        var payload = new ImageSearchRequestDto(Convert.ToBase64String(image), mime, topK);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/search/image")
+        {
+            Content = JsonContent.Create(payload, ApiJson.Default.ImageSearchRequestDto),
+        };
+        var response = await _http.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(await DescribeErrorAsync(response, cancellationToken));
+        }
+        return Json.Parse(body, ApiJson.Default.ImageSearchResponseDto);
+    }
+
     /// <summary>读当前生效的配置（密钥是打码后的提示）。</summary>
     public async Task<SettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
     {

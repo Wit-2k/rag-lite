@@ -42,7 +42,7 @@ public partial class App : Application
             // 后端作为子进程由界面拉起：窗口先出现（显示「正在启动后端…」），随后异步完成握手
             var backend = new BackendProcess();
             var window = new MainWindow();
-            var viewModel = new MainViewModel(backend, window, window, window);
+            var viewModel = new MainViewModel(backend, window, window, window, window);
             window.DataContext = viewModel;
             desktop.MainWindow = window;
 
