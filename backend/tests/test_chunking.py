@@ -13,7 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from app.core.chunking import KIND_CODE, KIND_TABLE, KIND_TEXT, chunk_markdown, file_sha256
+from app.core.chunking import (
+    KIND_CODE,
+    KIND_IMAGE,
+    KIND_TABLE,
+    KIND_TEXT,
+    chunk_images,
+    chunk_markdown,
+    file_sha256,
+)
 
 CORPUS = Path(r"D:\MinerU Outputs")
 REAL_DOCS = sorted(p / "full.md" for p in CORPUS.iterdir() if (p / "full.md").is_file()) if CORPUS.is_dir() else []
@@ -38,6 +46,59 @@ def write_doc(tmp_path: Path, text: str, images: dict[str, bytes] | None = None)
 
 def kinds(blocks) -> list[str]:
     return [b.kind for b in blocks]
+
+
+# ---------------------------------------------------------------- 纯图片目录
+
+
+def test_chunk_images_makes_one_empty_text_block_per_image(tmp_path: Path) -> None:
+    root = tmp_path / "纯图片"
+    (root / "images" / "sub").mkdir(parents=True)
+    (root / "images" / "a.jpg").write_bytes(b"jpeg-a")
+    (root / "images" / "sub" / "b.png").write_bytes(b"png-b")
+    (root / "images" / "ignore.txt").write_text("not an image", encoding="utf-8")
+
+    result = chunk_images(root)
+
+    assert len(result.blocks) == 2
+    assert all(block.kind == KIND_IMAGE for block in result.blocks)
+    assert all(block.text == "" and block.body == "" and block.char_count == 0 for block in result.blocks)
+    assert [block.images[0].name for block in result.blocks] == ["a.jpg", "b.png"]
+    assert result.blocks[0].heading.startswith("图片：images/")
+
+
+def test_chunk_images_scans_flat_directory_when_no_images_subdir(tmp_path: Path) -> None:
+    """没有 images/ 子目录时，源目录本身就是图片目录。"""
+    root = tmp_path / "扁平图片"
+    root.mkdir()
+    (root / "a.jpg").write_bytes(b"jpeg-a")
+    (root / "b.webp").write_bytes(b"webp-b")
+
+    result = chunk_images(root)
+
+    assert len(result.blocks) == 2
+    assert all(block.kind == KIND_IMAGE for block in result.blocks)
+    assert [block.images[0].name for block in result.blocks] == ["a.jpg", "b.webp"]
+
+
+def test_chunk_images_fingerprint_changes_with_content(tmp_path: Path) -> None:
+    root = tmp_path / "纯图片"
+    (root / "images").mkdir(parents=True)
+    image = root / "images" / "a.jpg"
+    image.write_bytes(b"first")
+    before = chunk_images(root).sha256
+
+    image.write_bytes(b"second")
+
+    assert chunk_images(root).sha256 != before
+
+
+def test_chunk_images_requires_at_least_one_image(tmp_path: Path) -> None:
+    root = tmp_path / "空目录"
+    root.mkdir()
+
+    with pytest.raises(FileNotFoundError, match="full.md"):
+        chunk_images(root)
 
 
 # ---------------------------------------------------------------- 结构与标题

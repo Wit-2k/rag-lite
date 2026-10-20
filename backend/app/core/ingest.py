@@ -1,7 +1,8 @@
 """导入管线：MinerU 产物目录 → 分块 → 向量化 → 写入 LanceDB。
 
-幂等策略：以 `full.md` 的 sha256 为准。同一个目录重复导入时，哈希没变就直接跳过（不花钱、不写库）；
-哈希变了就「先删旧分块 → 再写新分块 → 更新数据源行」，避免出现新旧两代分块并存。
+幂等策略：以内容指纹为准。有 `full.md` 时取它的 sha256；没有 `full.md` 时取「图片相对路径 + 内容哈希」。
+同一个目录重复导入时，指纹没变就直接跳过（不花钱、不写库）；变了就
+「先删旧分块 → 再写新分块 → 更新数据源行」，避免出现新旧两代分块并存。
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from app.core.chunking import chunk_markdown
+from app.core.chunking import KIND_IMAGE, chunk_images, chunk_markdown
 from app.core.openrouter import (
     DEFAULT_BATCH,
     DEFAULT_DIM,
@@ -67,7 +68,8 @@ def ingest(
     """把一个 MinerU 产物目录导入向量库。
 
     Args:
-        source_dir: 含 `full.md`（以及可选的 `images/`）的产物目录。
+        source_dir: MinerU 产物目录。有 `full.md` 时走文本 + 引用图片；
+            没有 `full.md` 时只嵌入 `images/` 下的图片（一张图一个块，无文本）。
         store: 已连好的 Store。
         api_key: OpenRouter 密钥。
         force: True 时忽略哈希、无条件重导。
@@ -76,8 +78,6 @@ def ingest(
     started = time.perf_counter()
     source_dir = Path(source_dir).resolve()
     full_md = source_dir / FULL_MD_NAME
-    if not full_md.is_file():
-        raise FileNotFoundError(f"目录里没有 {FULL_MD_NAME}：{source_dir}（文本解析要在 MinerU 客户端先做）")
 
     source_id = source_id_for(source_dir)
 
@@ -85,8 +85,14 @@ def ingest(
         if on_progress:
             on_progress(done, total, stage)
 
-    report(0, 1, "分块")
-    chunked = chunk_markdown(full_md)
+    # 0 字节或只有空白的 full.md 等于「没有文本」，走纯图片路径；否则全图目录会被导成 0 块
+    text_mode = full_md.is_file() and bool(full_md.read_text(encoding="utf-8").strip())
+    if text_mode:
+        report(0, 1, "分块")
+        chunked = chunk_markdown(full_md)
+    else:
+        report(0, 1, "扫描图片")
+        chunked = chunk_images(source_dir)   # 没有图片时会抛 FileNotFoundError
 
     existing = store.get_source(source_id)
     # 「没变」= 内容哈希没变 **且** 嵌入模型与维度也没变。
@@ -111,7 +117,7 @@ def ingest(
     elif force:
         reason = "强制重新导入"
     else:
-        reason = "full.md 内容已变化"
+        reason = "full.md 内容已变化" if text_mode else "图片集内容已变化"
 
     result = embed_blocks(
         chunked.blocks,
@@ -122,6 +128,12 @@ def ingest(
         batch=batch,
         on_progress=lambda done, total: report(done, total, "向量化"),
     )
+
+    def rel_path_for(block) -> str:
+        """文本块记 full.md；纯图片块记它自己的相对路径，方便结果回溯。"""
+        if block.kind == KIND_IMAGE and block.images:
+            return block.images[0].relative_to(source_dir).as_posix()
+        return FULL_MD_NAME
 
     embedded_at = utc_now()
     rows = [
@@ -138,7 +150,7 @@ def ingest(
                 "char_count": block.char_count,
                 "images": block.images,
             },
-            rel_path=FULL_MD_NAME,
+            rel_path=rel_path_for(block),
             embedded_at=embedded_at,
         )
         for index, (block, vector) in enumerate(zip(chunked.blocks, result.vectors))

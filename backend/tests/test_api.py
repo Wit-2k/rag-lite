@@ -170,18 +170,50 @@ def test_list_sources_marks_missing_directory(client: TestClient, settings: Sett
     assert len(body) == 1
     assert body[0]["name"] == "手册.pdf"
     assert body[0]["chunk_count"] == len(CHUNKS)
-    assert body[0]["missing"] is True, "path 下面没有 full.md，应当标为 missing"
+    assert body[0]["missing"] is True, "目录不存在时应当标为 missing"
 
     (settings.root / "手册.pdf").mkdir(parents=True, exist_ok=True)
+    assert client.get("/api/sources").json()[0]["missing"] is False, "目录存在就不算 missing"
     (settings.root / "手册.pdf" / "full.md").write_text("# 标题\n\n正文", encoding="utf-8")
     assert client.get("/api/sources").json()[0]["missing"] is False
 
 
-def test_add_source_rejects_directory_without_full_md(client: TestClient, tmp_path: Path) -> None:
-    response = client.post("/api/sources", json={"path": str(tmp_path / "不存在")})
+def test_add_source_rejects_directory_without_full_md_or_images(client: TestClient, tmp_path: Path) -> None:
+    empty = tmp_path / "空目录"
+    empty.mkdir()
+    response = client.post("/api/sources", json={"path": str(empty)})
 
     assert response.status_code == 400
     assert "full.md" in response.json()["detail"]
+    assert "images" in response.json()["detail"]
+
+
+def test_add_source_accepts_image_only_directory(
+    client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_ingest(path, store, *, api_key, model, dim, on_progress=None, **kwargs):
+        from app.core.ingest import IngestResult
+
+        return IngestResult(
+            source_id="src_images",
+            name=Path(path).name,
+            path=str(path),
+            chunk_count=1,
+            image_count=1,
+            skipped=False,
+            sha256="image-set",
+        )
+
+    monkeypatch.setattr(routes_module, "ingest", fake_ingest)
+
+    for name, empty_full_md in (("纯图片", False), ("空full", True)):
+        source = settings.root / name
+        (source / "images").mkdir(parents=True, exist_ok=True)
+        (source / "images" / "a.jpg").write_bytes(b"\xff\xd8\xff\xe0fake")
+        if empty_full_md:
+            (source / "full.md").write_text("  \n", encoding="utf-8")
+        response = client.post("/api/sources", json={"path": str(source)})
+        assert response.status_code == 202
 
 
 def test_add_source_runs_ingest_job(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:

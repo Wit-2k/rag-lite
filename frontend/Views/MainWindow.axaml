@@ -34,7 +34,7 @@
                         <Button Content="批量添加目录…"
                                 Classes="accent"
                                 Command="{Binding AddSourceCommand}"
-                                ToolTip.Tip="可一次选多个 MinerU 产物目录；后端同时最多导入 3 个，其余排队" />
+                                ToolTip.Tip="可一次选多个 MinerU 产物目录或纯图片目录；后端同时最多导入 3 个，其余排队" />
                         <Button Content="刷新"
                                 Command="{Binding RefreshCommand}" />
                     </StackPanel>

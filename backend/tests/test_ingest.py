@@ -63,6 +63,15 @@ def fake_embedder(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return calls
 
 
+def make_image_source(tmp_path: Path, *, name: str = "纯图片", images: int = 3) -> Path:
+    """没有 full.md 的纯图片目录。"""
+    root = tmp_path / name
+    (root / "images").mkdir(parents=True, exist_ok=True)
+    for index in range(images):
+        (root / "images" / f"pic{index}.jpg").write_bytes(b"\xff\xd8\xff\xe0" + bytes([index]))
+    return root
+
+
 def make_store(tmp_path: Path) -> Store:
     return Store(tmp_path / "lancedb", dim=DIM)
 
@@ -103,6 +112,54 @@ def test_ingested_chunks_are_searchable(tmp_path: Path, fake_embedder: list[dict
     assert all(hit["source_id"] == hits[0]["source_id"] for hit in hits)
     assert all(hit["rel_path"] == "full.md" for hit in hits)
     assert any("测试制度汇编" in hit["heading"] for hit in hits)
+
+
+def test_image_only_source_embeds_images_without_text(tmp_path: Path, fake_embedder: list[dict]) -> None:
+    source = make_image_source(tmp_path, images=3)
+    store = make_store(tmp_path)
+
+    result = ingest(source, store, api_key="fake", dim=DIM)
+
+    assert not result.skipped
+    assert result.chunk_count == result.image_count == 3
+    hits = store.search([1.0] + [0.0] * (DIM - 1), top_k=10)
+    assert len(hits) == 3
+    assert all(hit["kind"] == "image" and hit["text"] == "" for hit in hits)
+    assert all(hit["rel_path"].startswith("images/") for hit in hits)
+    assert all("图片：" in hit["heading"] for hit in hits)
+
+
+def test_empty_full_md_falls_back_to_images(tmp_path: Path, fake_embedder: list[dict]) -> None:
+    source = make_image_source(tmp_path, images=2)
+    (source / "full.md").write_text("  \n\n", encoding="utf-8")
+    store = make_store(tmp_path)
+
+    result = ingest(source, store, api_key="fake", dim=DIM)
+
+    assert result.chunk_count == result.image_count == 2
+    hits = store.search([1.0] + [0.0] * (DIM - 1), top_k=10)
+    assert all(hit["kind"] == "image" and hit["text"] == "" for hit in hits)
+
+
+def test_image_only_source_skips_then_reimports_when_image_changes(
+    tmp_path: Path, fake_embedder: list[dict]
+) -> None:
+    source = make_image_source(tmp_path, images=2)
+    store = make_store(tmp_path)
+    first = ingest(source, store, api_key="fake", dim=DIM)
+
+    again = ingest(source, store, api_key="fake", dim=DIM)
+    assert again.skipped
+    assert again.chunk_count == first.chunk_count
+
+    (source / "images" / "pic0.jpg").write_bytes(b"\xff\xd8\xff\xe0changed")
+    changed = ingest(source, store, api_key="fake", dim=DIM)
+
+    assert not changed.skipped
+    assert "图片集" in changed.reason
+    assert changed.sha256 != first.sha256
+    assert store.count_chunks(first.source_id) == changed.chunk_count
+    assert len(fake_embedder) == 2
 
 
 def test_chunk_ids_are_stable_across_reingest(tmp_path: Path, fake_embedder: list[dict]) -> None:

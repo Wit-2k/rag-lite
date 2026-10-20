@@ -1,6 +1,6 @@
 # rag-lite 后端
 
-把 MinerU 手工解析出来的产物目录（`full.md` + `images/`）变成可检索的知识库，并提供本机 HTTP 接口。
+把 MinerU 产物目录（`full.md` + `images/`）或纯图片目录变成可检索的知识库，并提供本机 HTTP 接口。
 整条链路：**分块 → 向量化 → 存 LanceDB → 余弦检索 → 重排 → 交给大模型流式回答**。
 
 ## 环境要求
@@ -14,7 +14,7 @@
 ```bash
 uv sync                                  # 装依赖
 cp .env.example .env                     # 然后把 OPENROUTER_API_KEY 填进去（.env 已被 git 忽略）
-uv run pytest -q                         # 188 条测试，默认只有 3 条会真打接口
+uv run pytest -q                         # 199 条测试，默认只有 3 条会真打接口
 uv run python main.py                    # 起服务，默认 127.0.0.1:17650
 ```
 
@@ -59,7 +59,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | --- | --- | --- |
 | GET | `/api/health` | 就绪探测：块数、数据源数、密钥是否配好、三个角色的接入点/模型/维度、`sources_stale` |
 | GET | `/api/sources` | 数据源列表（`missing` = 产物目录不在了；`stale` = 需要重新导入） |
-| POST | `/api/sources` | 登记一个产物目录并开始导入，立刻返回 `202 {job_id}` |
+| POST | `/api/sources` | 登记一个产物目录或纯图片目录并开始导入，立刻返回 `202 {job_id}` |
 | DELETE | `/api/sources/{id}?purge=true` | 移除数据源（默认连分块一起删） |
 | PUT | `/api/sources/{id}/groups` | 整体替换数据源所属分组（空列表 = 移出所有分组） |
 | GET | `/api/jobs/{id}` | 导入进度：`state/total/done/message/result` |
@@ -90,7 +90,7 @@ app/api/                 HTTP 层：models（DTO）/ jobs（后台任务）/ rou
 app/core/chunking.py     分块：标题切 section、表格/代码保持原子、图片按区间归属
 app/core/openrouter.py   云端调用：嵌入、重排、流式对话（共用一套重试/退避）
 app/core/store.py        LanceDB 读写：建表、写入、余弦检索、删除
-app/core/ingest.py       导入管线：分块→向量化→入库，按 full.md 哈希幂等
+app/core/ingest.py       导入管线：分块→向量化→入库，按 full.md 或图片集哈希幂等
 app/core/query.py        问答管线：检索→重排→拼提示词→流式回答 + 历史管理
 app/core/schema.py       两张表的 Arrow schema
 data/lancedb/            向量库（git 忽略，运行期生成）

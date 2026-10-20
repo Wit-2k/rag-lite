@@ -26,11 +26,26 @@ from pathlib import Path
 from chonkie import MarkdownChef, RecursiveChunker, TableChunker
 from chonkie.types import RecursiveLevel, RecursiveRules
 
-__all__ = ["Block", "ChunkResult", "chunk_markdown", "file_sha256", "KIND_TEXT", "KIND_TABLE", "KIND_CODE"]
+__all__ = [
+    "Block",
+    "ChunkResult",
+    "chunk_markdown",
+    "chunk_images",
+    "image_files",
+    "file_sha256",
+    "KIND_TEXT",
+    "KIND_TABLE",
+    "KIND_CODE",
+    "KIND_IMAGE",
+]
 
 KIND_TEXT = "text"
 KIND_TABLE = "table"
 KIND_CODE = "code"
+KIND_IMAGE = "image"
+
+# 只收主流图片格式；mimetypes 能在 data URI 里识别这几种
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*?)[ \t]*$", re.MULTILINE)
 HTML_TABLE_RE = re.compile(r"<table\b[^>]*>.*?</table\s*>", re.IGNORECASE | re.DOTALL)
@@ -502,3 +517,58 @@ def chunk_markdown(
         )
 
     return ChunkResult(blocks=blocks, sha256=file_sha256(full_md), warnings=warnings, stats=stats)
+
+
+def image_files(source_dir: Path) -> list[Path]:
+    """源目录里可嵌入的图片，按路径排序。只认 jpg/jpeg/png/webp。
+
+    优先用 MinerU 布局的 `images/` 子目录；没有这个子目录时直接扫描源目录本身，
+    这样把一批图片放在一个普通文件夹里也能当作纯图片数据源。
+    """
+    base = Path(source_dir)
+    images_dir = base / "images"
+    root = images_dir if images_dir.is_dir() else base
+    if not root.is_dir():
+        return []
+    return sorted(
+        path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+    )
+
+
+def chunk_images(source_dir: Path) -> ChunkResult:
+    """没有 `full.md` 时的纯图片分块：一张图一个 Block，文本留空。
+
+    图片路径写进 `heading` 只用于检索结果展示，不进入嵌入文本；真正送嵌入接口的只有图片本身。
+    幂等指纹由「相对路径 + 每张图内容哈希」组成，换图或加图都会触发重新导入。
+    """
+    source_dir = Path(source_dir).resolve()
+    files = image_files(source_dir)
+    if not files:
+        raise FileNotFoundError(f"目录里既没有 full.md，也没有 images/（或源目录本身）下的图片：{source_dir}")
+
+    blocks: list[Block] = []
+    digest = hashlib.sha256()
+    for path in files:
+        rel = path.relative_to(source_dir).as_posix()
+        digest.update(rel.encode("utf-8"))
+        digest.update(file_sha256(path).encode("ascii"))
+        blocks.append(
+            Block(
+                kind=KIND_IMAGE,
+                heading=f"图片：{rel}",
+                level=0,
+                body="",
+                text="",          # 纯图片块不产生文本嵌入
+                start=0,
+                end=0,
+                images=(path,),
+            )
+        )
+
+    stats: dict[str, float] = {
+        "blocks": float(len(blocks)),
+        "images_referenced": float(len(files)),
+        "images_attached": float(len(files)),
+        "warnings": 0.0,
+    }
+    return ChunkResult(blocks=blocks, sha256=digest.hexdigest(), warnings=[], stats=stats)

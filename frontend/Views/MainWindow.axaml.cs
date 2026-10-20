@@ -148,7 +148,7 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroup
 
     private void ScrollToEnd() => Dispatcher.UIThread.Post(() => ChatScroll.ScrollToEnd(), DispatcherPriority.Background);
 
-    /// <summary>选择 MinerU 产物目录，支持一次多选（IFolderPicker 的实现）。</summary>
+    /// <summary>选择 MinerU 产物目录或纯图片目录，支持一次多选（IFolderPicker 的实现）。</summary>
     public async Task<IReadOnlyList<string>> PickFoldersAsync(string title)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions

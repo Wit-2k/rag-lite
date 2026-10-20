@@ -37,6 +37,7 @@ from app.api.models import (
     SourceOut,
 )
 from app.config import EDITABLE_FIELDS, ENV_NAMES, mask_secret, update_env_file
+from app.core.chunking import image_files
 from app.core.groups import GroupStore
 from app.core.ingest import ingest, remove_source
 from app.core.openrouter import ALLOWED_DIMS
@@ -87,7 +88,7 @@ def source_rows(store: Store, settings, groups: GroupStore) -> list[SourceOut]:
                 image_count=row.get("image_count", 0),
                 added_at=row["added_at"],
                 embedded_at=row["embedded_at"],
-                missing=not (path / "full.md").is_file(),
+                missing=not path.is_dir(),
                 embed_model=row.get("embed_model", ""),
                 embed_dim=int(row.get("embed_dim") or 0),
                 stale=is_stale(row, settings),
@@ -135,8 +136,16 @@ def add_source(payload: SourceCreateIn, request: Request) -> JobAcceptedOut:
     path = Path(payload.path)
     resolved = path.resolve()
 
-    if not (path / "full.md").is_file():
-        raise HTTPException(status_code=400, detail=f"目录里没有 full.md：{path}（请先在 MinerU 客户端完成解析）")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail=f"目录不存在：{path}")
+    full_md = resolved / "full.md"
+    text_ready = full_md.is_file() and bool(full_md.read_text(encoding="utf-8").strip())
+    if not text_ready and not image_files(resolved):
+        raise HTTPException(
+            status_code=400,
+            detail=f"目录里没有可用的 full.md（缺失或为空），也没有 images/ 或源目录下的图片：{path}"
+                   "（文本目录请先在 MinerU 客户端完成解析；纯图片目录放在 images/ 或直接放图片文件）",
+        )
     if not settings.configured:
         raise HTTPException(
             status_code=400,

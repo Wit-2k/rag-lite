@@ -305,6 +305,29 @@ def test_image_block_goes_alone_as_data_uri(tmp_path: Path) -> None:
     assert result.usage.cost_usd == pytest.approx(0.00014)
 
 
+def test_image_only_block_omits_empty_text_part(tmp_path: Path) -> None:
+    """纯图片块不能带空的 text 部分，只发 image_url。"""
+    image = tmp_path / "images" / "only.jpg"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"\xff\xd8\xff\xe0jpeg-bytes")
+    block = Block(
+        kind="image",
+        heading="图片：images/only.jpg",
+        level=0,
+        body="",
+        text="",
+        start=0,
+        end=0,
+        images=(image,),
+    )
+    session = FakeSession([FakeResponse(200, embedding_response(1))])
+
+    embed_blocks([block], api_key="k", session=session, sleep=no_sleep, workers=1)
+
+    item = session.calls[0]["payload"]["input"][0]
+    assert [part["type"] for part in item["content"]] == ["image_url"]
+
+
 def test_progress_callback_sees_every_block() -> None:
     blocks = [make_block(f"块{i}") for i in range(5)]
     session = FakeSession([FakeResponse(200, embedding_response(5))])

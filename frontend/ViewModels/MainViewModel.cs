@@ -406,7 +406,8 @@ public partial class MainViewModel : ObservableObject
         {
             return;
         }
-        var paths = await _picker.PickFoldersAsync("选择 MinerU 产物目录（可多选，里面要有 full.md）");
+        var paths = await _picker.PickFoldersAsync(
+            "选择 MinerU 产物目录或纯图片目录（可多选；文本目录需 full.md，纯图片目录放 images/ 或图片文件）");
         if (paths.Count == 0)
         {
             return;
@@ -433,7 +434,7 @@ public partial class MainViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                // 单个目录被拒（比如已经在导入队列里、或者没有 full.md）不影响其余目录
+                // 单个目录被拒（比如已经在导入队列里、或者既没有文本也没有图片）不影响其余目录
                 AppLog.Error(ex, "添加数据源");
                 rejected.Add($"{Path.GetFileName(path)}：{ex.Message}");
             }

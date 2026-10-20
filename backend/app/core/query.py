@@ -28,6 +28,7 @@ from app.core.openrouter import (
     ChatStream,
     ChatUsage,
     embed_texts,
+    image_data_uri,
     read_api_key,
     read_env_value,
     rerank,
@@ -39,8 +40,12 @@ SYSTEM_PROMPT = (
     "你是一个文档问答助手。请严格依据「参考片段」回答问题：\n"
     "1. 片段里没有的信息不要编造，直接说明依据不足；\n"
     "2. 引用时用 [来源 n] 标注，n 对应参考片段前的编号；\n"
-    "3. 用简体中文回答。"
+    "3. 参考片段若包含图片，请结合图片内容回答；\n"
+    "4. 用简体中文回答。"
 )
+
+# 一次最多附几张检索图片，避免纯图片检索把请求体撑得过大
+MAX_IMAGES_PER_PROMPT = 6
 
 EMPTY_CONTEXT_NOTE = "（本次没有检索到任何参考片段，请直接说明无法依据文档回答这个问题。）"
 
@@ -60,6 +65,7 @@ class Source:
     start: int
     end: int
     images: tuple[str, ...] = ()
+    image_paths: tuple[Path, ...] = ()   # 绝对路径，只有服务端拼多模态消息时用
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,12 +134,22 @@ def build_messages(
     """
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     messages.extend({"role": item["role"], "content": item["content"]} for item in history)
-    messages.append(
-        {
-            "role": "user",
-            "content": f"参考片段：\n\n{format_context(sources)}\n\n问题：{question}",
-        }
-    )
+
+    prompt = f"参考片段：\n\n{format_context(sources)}\n\n问题：{question}"
+    images: list[dict] = []
+    seen: set[Path] = set()
+    for source in sources:
+        for path in source.image_paths:
+            path = Path(path)
+            if path in seen or not path.is_file() or len(images) >= MAX_IMAGES_PER_PROMPT:
+                continue
+            seen.add(path)
+            images.append({"type": "image_url", "image_url": {"url": image_data_uri(path)}})
+
+    content: str | list[dict] = prompt
+    if images:
+        content = [{"type": "text", "text": prompt}, *images]
+    messages.append({"role": "user", "content": content})
     return messages
 
 
@@ -216,27 +232,60 @@ class ChatSession:
         if not hits:
             return []
 
-        extra = {} if self.rerank_doc_chars is None else {"truncate_chars": self.rerank_doc_chars}
-        ranking = rerank(
-            question,
-            [hit["text"] for hit in hits],
-            api_key=self.rerank_api_key,
-            model=self.rerank_model,
-            base_url=self.rerank_base_url,
-            **extra,
-        )
-        names = {row["source_id"]: row["name"] for row in self.store.list_sources()}
-        scores = dict(zip(ranking.order, ranking.scores))
+        texts = [str(hit.get("text") or "") for hit in hits]
+        if any(text.strip() for text in texts):
+            extra = {} if self.rerank_doc_chars is None else {"truncate_chars": self.rerank_doc_chars}
+            # 混合结果里纯图片命中没有文本，用图片路径给重排模型一个占位文档，避免空字符串
+            documents = [
+                text if text.strip() else str(hit.get("heading") or hit.get("rel_path") or "")
+                for text, hit in zip(texts, hits)
+            ]
+            ranking = rerank(
+                question,
+                documents,
+                api_key=self.rerank_api_key,
+                model=self.rerank_model,
+                base_url=self.rerank_base_url,
+                **extra,
+            )
+            order = ranking.order
+            scores = dict(zip(ranking.order, ranking.scores))
+        else:
+            # 纯图片命中：重排模型只吃文本，这里直接沿用余弦顺序（相似度当作分数）
+            order = list(range(len(hits)))
+            scores = {
+                index: max(0.0, 1.0 - float(hit.get("_distance") or 0.0))
+                for index, hit in enumerate(hits)
+            }
+        source_rows = {row["source_id"]: row for row in self.store.list_sources()}
+
+        def image_paths_for(hit: dict) -> tuple[Path, ...]:
+            row = source_rows.get(hit["source_id"])
+            if not row:
+                return ()
+            base = Path(row["path"])
+            rel = str(hit.get("rel_path") or "")
+            if hit.get("kind") == "image" and rel:
+                exact = base / rel
+                if exact.is_file():
+                    return (exact,)
+            found: list[Path] = []
+            for name in hit.get("images") or ():
+                for candidate in (base / "images" / name, base / name):
+                    if candidate.is_file():
+                        found.append(candidate)
+                        break
+            return tuple(found)
 
         sources: list[Source] = []
-        for rank, hit_index in enumerate(ranking.order[: self.context_n], start=1):
+        for rank, hit_index in enumerate(order[: self.context_n], start=1):
             hit = hits[hit_index]
             sources.append(
                 Source(
                     rank=rank,
                     chunk_id=hit["chunk_id"],
                     source_id=hit["source_id"],
-                    name=names.get(hit["source_id"], hit["source_id"]),
+                    name=source_rows.get(hit["source_id"], {}).get("name", hit["source_id"]),
                     heading=hit["heading"],
                     text=hit["text"],
                     rerank_score=float(scores.get(hit_index, 0.0)),
@@ -244,6 +293,7 @@ class ChatSession:
                     start=int(hit["start"]),
                     end=int(hit["end"]),
                     images=tuple(hit.get("images") or ()),
+                    image_paths=image_paths_for(hit),
                 )
             )
         return sources

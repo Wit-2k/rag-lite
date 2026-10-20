@@ -18,6 +18,7 @@ from app.core.query import (
     ChatSession,
     DoneEvent,
     RetrievalEvent,
+    Source,
     TokenEvent,
     build_messages,
     format_context,
@@ -153,6 +154,74 @@ def test_rerank_result_decides_source_order(store: Store, wired: FakeChat) -> No
     assert sources[0].cosine_distance >= 0
 
 
+def test_image_only_hits_skip_text_rerank(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """纯图片命中没有文本可重排，直接沿用余弦顺序，不能把空串发给 rerank。"""
+    store = Store(tmp_path / "image-lancedb", dim=DIM)
+    names = ["a.jpg", "b.jpg", "c.jpg"]
+    source_dir = tmp_path / "图片集"
+    (source_dir / "images").mkdir(parents=True)
+    for name in names:
+        (source_dir / "images" / name).write_bytes(b"\xff\xd8\xff\xe0" + name.encode())
+    store.upsert_source(
+        {
+            "source_id": "src_images",
+            "name": "图片集",
+            "path": str(source_dir),
+            "sha256": "images",
+            "chunk_count": len(names),
+            "image_count": len(names),
+            "embed_model": "fake",
+            "embed_dim": DIM,
+            "added_at": utc_now(),
+            "embedded_at": utc_now(),
+        }
+    )
+    store.add_chunks(
+        [
+            chunk_row(
+                chunk_id=f"src_images_{index:05d}",
+                source_id="src_images",
+                vector=[1.0, 0.0, 0.0, 0.0],
+                blocking={
+                    "heading": f"图片：images/{name}",
+                    "text": "",
+                    "kind": "image",
+                    "start": 0,
+                    "end": 0,
+                    "char_count": 0,
+                    "images": [name],
+                },
+                rel_path=f"images/{name}",
+                embedded_at=utc_now(),
+            )
+            for index, name in enumerate(names)
+        ]
+    )
+    monkeypatch.setattr(
+        query_module,
+        "embed_texts",
+        lambda texts, **kwargs: EmbedResult(
+            vectors=[[1.0, 0.0, 0.0, 0.0] for _ in texts], usage=EmbedUsage(requests=1), dim=DIM
+        ),
+    )
+
+    def fail_rerank(*args, **kwargs):
+        raise AssertionError("纯图片命中不应调用文本重排")
+
+    monkeypatch.setattr(query_module, "rerank", fail_rerank)
+    session = ChatSession(store, api_key="fake", chat=FakeChat(["答"]))
+
+    sources = session.retrieve("风景")
+
+    assert len(sources) == 3
+    assert all(source.text == "" for source in sources)
+    assert {source.images[0] for source in sources} == set(names)
+    assert all(source.image_paths and source.image_paths[0].is_file() for source in sources)
+    content = build_messages("风景", sources, [])[-1]["content"]
+    assert isinstance(content, list)
+    assert sum(1 for part in content if part["type"] == "image_url") == 3
+
+
 def test_context_n_limits_sources(store: Store, wired: FakeChat) -> None:
     session = make_session(store, wired, context_n=1)
     assert len(collect(session, "问题")[0].sources) == 1
@@ -265,9 +334,35 @@ def test_format_context_marks_missing_sources() -> None:
     assert "没有检索到" in format_context([])
 
 
-def test_build_messages_layout() -> None:
-    from app.core.query import Source
+def test_build_messages_includes_source_images(tmp_path: Path) -> None:
+    image = tmp_path / "images" / "a.jpg"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"\xff\xd8\xff\xe0jpeg")
+    source = Source(
+        rank=1,
+        chunk_id="c1",
+        source_id="s1",
+        name="图片集",
+        heading="图片：images/a.jpg",
+        text="",
+        rerank_score=1.0,
+        cosine_distance=0.0,
+        start=0,
+        end=0,
+        images=("a.jpg",),
+        image_paths=(image,),
+    )
 
+    messages = build_messages("图里是什么？", [source], [])
+
+    content = messages[-1]["content"]
+    assert isinstance(content, list)
+    assert content[0]["type"] == "text" and "图里是什么" in content[0]["text"]
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+def test_build_messages_layout() -> None:
     source = Source(
         rank=1,
         chunk_id="c1",

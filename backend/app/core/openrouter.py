@@ -164,7 +164,7 @@ def read_api_key(*, env_file: Path | None = DEFAULT_ENV_FILE) -> str:
 # —— 内部工具 ——————————————————————————————————————————————————————
 
 
-def _data_uri(path: Path) -> str:
+def image_data_uri(path: Path) -> str:
     """把本地图片转成 data URI：OpenRouter 只接受 http(s) 链接或 data URI，本地文件必须内联。"""
     mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
     encoded = base64.b64encode(Path(path).read_bytes()).decode("ascii")
@@ -175,15 +175,15 @@ def _build_input(block: Block) -> str | dict:
     """把一块内容转成接口认识的条目：有图就图文混排，没图就是纯字符串（更省事也更快）。"""
     if not block.images:
         return block.text
-    return {
-        "content": [
-            {"type": "text", "text": block.text},
-            *(
-                {"type": "image_url", "image_url": {"url": _data_uri(image)}}
-                for image in block.images
-            ),
-        ]
-    }
+
+    content: list[dict] = []
+    if block.text.strip():
+        content.append({"type": "text", "text": block.text})
+    content.extend(
+        {"type": "image_url", "image_url": {"url": image_data_uri(image)}}
+        for image in block.images
+    )
+    return {"content": content}
 
 
 def _usage_of(payload: dict, seconds: float) -> EmbedUsage:

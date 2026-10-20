@@ -26,9 +26,9 @@ def chunks_schema(dim: int) -> pa.Schema:
             pa.field("source_id", pa.string()),
             pa.field("vector", pa.list_(pa.float32(), dim)),
             pa.field("heading", pa.string()),  # 标题面包屑，展示与排序用
-            pa.field("text", pa.string()),  # 真正送去嵌入的文本（= 面包屑 + 正文），重排与喂大模型也用它
-            pa.field("kind", pa.string()),  # text / table / code
-            pa.field("rel_path", pa.string()),  # 源目录内的相对路径，当前恒为 full.md
+            pa.field("text", pa.string()),  # 真正送去嵌入的文本（= 面包屑 + 正文）；纯图片块为空
+            pa.field("kind", pa.string()),  # text / table / code / image
+            pa.field("rel_path", pa.string()),  # 文本块为 full.md；纯图片块为 images/xxx.jpg
             pa.field("start", pa.int32()),  # 在 full.md 中的字符区间，便于回溯原文
             pa.field("end", pa.int32()),
             pa.field("char_count", pa.int32()),
@@ -39,13 +39,13 @@ def chunks_schema(dim: int) -> pa.Schema:
 
 
 def sources_schema() -> pa.Schema:
-    """数据源表：一行 = 一个 MinerU 产物目录（含幂等指纹）。"""
+    """数据源表：一行 = 一个产物目录（有 full.md 或纯图片目录，含幂等指纹）。"""
     return pa.schema(
         [
             pa.field("source_id", pa.string()),
             pa.field("name", pa.string()),
             pa.field("path", pa.string()),
-            pa.field("sha256", pa.string()),  # full.md 的哈希：没变就跳过重新导入
+            pa.field("sha256", pa.string()),  # 内容指纹：full.md 或图片集；没变就跳过重新导入
             pa.field("chunk_count", pa.int32()),
             pa.field("image_count", pa.int32()),
             pa.field("embed_model", pa.string()),
