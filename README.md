@@ -25,7 +25,7 @@ flowchart LR
     UI["数据源管理 / 对话 / 设置"]
   end
   subgraph SERVER["Python 后端 · raglite-backend.exe"]
-    API["FastAPI · 9 个端点"]
+    API["FastAPI · 20 个端点"]
     CH["分块 chonkie"]
     PIPE["检索 + 重排"]
   end
@@ -75,7 +75,7 @@ dotnet run                # 会自动拉起上面的后端
 ### 测试
 
 ```bash
-cd backend && uv run pytest -q     # 136 passed；只有 3 条会真调接口，其余用假实现
+cd backend && uv run pytest -q     # 185 passed；只有 3 条会真调接口，其余用假实现
 ```
 
 ## 配置
@@ -106,14 +106,14 @@ cd backend && uv run pytest -q     # 136 passed；只有 3 条会真调接口，
 | 一次检索 + 重排（20 篇候选） | ≈ $0.0006 |
 | 一轮回答（3 条片段） | ≈ $0.0007 |
 | 检索质量 | 5 个真实问题：用余弦召回 + `rerank-3` 后全部命中正确章节 |
-| 便携包 | zip 202.2MB / 解包 536MB（`RagLite.exe` 单文件 150MB + 后端 386MB） |
+| 便携包 | zip 203.4MB / 解包 538MB（`RagLite.exe` 单文件 150.7MB + 后端 387.3MB） |
 | 启动 | 双击到「后端就绪」约 1.8s |
 
 ## 目录结构
 
 ```
 backend/          Python 后端
-  app/core/       分块 / 云端调用 / 向量库 / 导入 / 问答 / 会话落盘 六块
+  app/core/       分块 / 云端调用 / 向量库 / 导入 / 问答 / 会话 / 分组 / schema 八块
   data/           运行期数据：lancedb/（向量库）、sessions.db（会话与聊天记录），都被 git 忽略
   app/api/        FastAPI 端点与后台任务
   tests/          测试 + 可人工复查的报告生成器（out/ 被 git 忽略）
@@ -146,8 +146,8 @@ zip/              打包脚本与给最终用户的说明
 - **托盘常驻**：关窗只是收进托盘（进程与后端继续运行），彻底退出走托盘菜单；Windows 11 默认把新托盘图标放进「隐藏的图标」溢出区，想常驻在任务栏上就把它拖出来。
 - **单实例**：重复双击 `RagLite.exe` 不会起第二个实例（会提示并把已有窗口叫到前台），避免两个后端同时写同一个向量库。
 - **后端不会变孤儿**：从任务管理器强杀界面时，靠两道保险收尾——① Windows 作业对象（界面进程一死，系统立刻杀掉整棵后端进程树）；② 后端自身的看门狗（读 stdin，界面一死读到 EOF 就退出，`--watch-parent`）。已实测强杀后 0.5 秒内端口释放。
-- **Markdown 渲染依赖预发布版**：`Markdown.Avalonia` 稳定版 11.0.3 是按 Avalonia 11 编译的，在 Avalonia 12 下启动即崩，因此固定用 `12.0.0-a3`。
+- **Markdown 渲染固定用 12.0.2**：`Markdown.Avalonia` 11.x 稳定版按 Avalonia 11 编译，在 Avalonia 12 下启动即崩；`12.0.2` 是面向 Avalonia 12 的稳定版。
 
 ## 技术栈
 
-Python 3.14 · uv · FastAPI · LanceDB · chonkie · openai SDK · Avalonia 12.1.4 (.NET 10) · CommunityToolkit.Mvvm · Markdown.Avalonia 12.0.0-a3 · PyInstaller 6.22
+Python 3.14 · uv · FastAPI · LanceDB · chonkie · openai SDK · Avalonia 12.1.4 (.NET 10) · CommunityToolkit.Mvvm · Markdown.Avalonia 12.0.2 · PyInstaller 6.22

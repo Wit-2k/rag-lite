@@ -14,7 +14,7 @@
 ```bash
 uv sync                                  # 装依赖
 cp .env.example .env                     # 然后把 OPENROUTER_API_KEY 填进去（.env 已被 git 忽略）
-uv run pytest -q                         # 96 条测试，默认只有 3 条会真打接口
+uv run pytest -q                         # 185 条测试，默认只有 3 条会真打接口
 uv run python main.py                    # 起服务，默认 127.0.0.1:17650
 ```
 
@@ -61,9 +61,20 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | GET | `/api/sources` | 数据源列表（`missing` = 产物目录不在了；`stale` = 需要重新导入） |
 | POST | `/api/sources` | 登记一个产物目录并开始导入，立刻返回 `202 {job_id}` |
 | DELETE | `/api/sources/{id}?purge=true` | 移除数据源（默认连分块一起删） |
+| PUT | `/api/sources/{id}/groups` | 整体替换数据源所属分组（空列表 = 移出所有分组） |
 | GET | `/api/jobs/{id}` | 导入进度：`state/total/done/message/result` |
+| GET | `/api/sessions` | 会话列表（最近使用倒序，带消息数） |
+| POST | `/api/sessions` | 新建会话（可同时绑定检索范围分组） |
+| PUT | `/api/sessions/{id}` | 重命名会话 |
+| DELETE | `/api/sessions/{id}` | 删除会话及其聊天记录 |
+| GET | `/api/sessions/{id}/messages` | 某会话的全部消息（含助手消息附带的来源 JSON） |
+| PUT | `/api/sessions/{id}/group` | 设置会话检索范围；`group_id=null` 表示全部数据源 |
+| GET | `/api/groups` | 分组列表（带成员数） |
+| POST | `/api/groups` | 新建分组（重名或保留名返回 409） |
+| PUT | `/api/groups/{id}` | 重命名分组 |
+| DELETE | `/api/groups/{id}` | 删除分组；还有会话在用时返回 409 并列出会话 |
 | POST | `/api/chat` | 提问，返回 SSE：`sources` → `token`… → `done`（或 `error`） |
-| POST | `/api/chat/clear` | 清空对话上下文 |
+| POST | `/api/chat/clear` | 清空某个会话的对话上下文 |
 | GET | `/api/settings` | 当前生效配置（密钥只回打码提示，附 `.env` 路径与库维度） |
 | PUT | `/api/settings` | 改配置：写入 `.env` **并立即生效**；留空的字段不动；维度对不上库或参数非法返回 400 |
 
@@ -75,7 +86,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 ```
 main.py                  入口：选端口 → uvicorn → 打印握手
 app/config.py            配置：命令行 > 环境变量 > .env > 默认
-app/api/                 HTTP 层：models（DTO）/ jobs（后台任务）/ routes（7 个端点）/ server（组装）
+app/api/                 HTTP 层：models（DTO）/ jobs（后台任务）/ routes（20 个端点）/ server（组装）
 app/core/chunking.py     分块：标题切 section、表格/代码保持原子、图片按区间归属
 app/core/openrouter.py   云端调用：嵌入、重排、流式对话（共用一套重试/退避）
 app/core/store.py        LanceDB 读写：建表、写入、余弦检索、删除
