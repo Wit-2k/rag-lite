@@ -75,7 +75,7 @@ dotnet run                # 会自动拉起上面的后端
 ### 测试
 
 ```bash
-cd backend && uv run pytest -q     # 187 passed；只有 3 条会真调接口，其余用假实现
+cd backend && uv run pytest -q     # 188 passed；只有 3 条会真调接口，其余用假实现
 ```
 
 ## 配置

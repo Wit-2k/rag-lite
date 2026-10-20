@@ -14,7 +14,7 @@
 ```bash
 uv sync                                  # 装依赖
 cp .env.example .env                     # 然后把 OPENROUTER_API_KEY 填进去（.env 已被 git 忽略）
-uv run pytest -q                         # 187 条测试，默认只有 3 条会真打接口
+uv run pytest -q                         # 188 条测试，默认只有 3 条会真打接口
 uv run python main.py                    # 起服务，默认 127.0.0.1:17650
 ```
 
@@ -75,7 +75,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | DELETE | `/api/groups/{id}` | 删除分组；还有会话在用时返回 409 并列出会话 |
 | POST | `/api/chat` | 提问，返回 SSE：`sources` → `token`… → `done`（或 `error`） |
 | POST | `/api/chat/clear` | 清空某个会话的对话上下文 |
-| GET | `/api/settings` | 当前生效配置（密钥只回打码提示，附 `.env` 路径与库维度） |
+| GET | `/api/settings` | 当前生效配置（密钥只回固定圆点，不露任何片段；附 `.env` 路径与库维度） |
 | PUT | `/api/settings` | 改配置：写入 `.env` **并立即生效**；留空的字段不动；维度对不上库或参数非法返回 400 |
 
 对话历史默认每轮全带（由后端会话持有，前端不用上传）；`clear` 之后历史清空。

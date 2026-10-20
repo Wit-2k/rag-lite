@@ -65,6 +65,7 @@
                             <TextBox Width="330"
                                      Text="{Binding ApiKey}"
                                      PasswordChar="●"
+                                     RevealPassword="False"
                                      PlaceholderText="输入共享 API Key" />
                         </ui:FASettingsExpanderItem.Footer>
                     </ui:FASettingsExpanderItem>
@@ -111,6 +112,7 @@
                             <TextBox Width="330"
                                      Text="{Binding EmbedApiKey}"
                                      PasswordChar="●"
+                                     RevealPassword="False"
                                      PlaceholderText="嵌入专用密钥（留空沿用共享密钥）" />
                         </ui:FASettingsExpanderItem.Footer>
                     </ui:FASettingsExpanderItem>
@@ -140,6 +142,7 @@
                             <TextBox Width="330"
                                      Text="{Binding RerankApiKey}"
                                      PasswordChar="●"
+                                     RevealPassword="False"
                                      PlaceholderText="重排专用密钥（留空沿用共享密钥）" />
                         </ui:FASettingsExpanderItem.Footer>
                     </ui:FASettingsExpanderItem>
@@ -169,6 +172,7 @@
                             <TextBox Width="330"
                                      Text="{Binding ChatApiKey}"
                                      PasswordChar="●"
+                                     RevealPassword="False"
                                      PlaceholderText="回答专用密钥（留空沿用共享密钥）" />
                         </ui:FASettingsExpanderItem.Footer>
                     </ui:FASettingsExpanderItem>

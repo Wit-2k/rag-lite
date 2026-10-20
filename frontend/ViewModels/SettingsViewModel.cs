@@ -33,10 +33,11 @@ public partial class SettingsViewModel : ObservableObject
         // 只读信息：让用户知道值写在哪、库是几维、哪些钥匙已经配过
         Location =
             $"配置文件：{current.EnvFile}\n数据目录：{current.DataDir}\n向量库维度：{current.StoreDim} 维（与嵌入维度必须一致）";
-        ApiKeyHint = current.ApiKeySet ? $"已配置：{current.ApiKeyHint}（留空则不修改）" : "未配置（必填，否则无法导入与问答）";
-        EmbedApiKeyHint = current.EmbedApiKeySet ? $"已配置：{current.EmbedApiKeyHint}" : "留空则用上面那把共享密钥";
-        RerankApiKeyHint = current.RerankApiKeySet ? $"已配置：{current.RerankApiKeyHint}" : "留空则用上面那把共享密钥";
-        ChatApiKeyHint = current.ChatApiKeySet ? $"已配置：{current.ChatApiKeyHint}" : "留空则用上面那把共享密钥";
+        // 密钥只回固定圆点：即使后端以后误带片段，界面也不显示任何真实字符
+        ApiKeyHint = current.ApiKeySet ? "已配置：••••••••（留空则不修改）" : "未配置（必填，否则无法导入与问答）";
+        EmbedApiKeyHint = current.EmbedApiKeySet ? "已配置：••••••••" : "留空则用上面那把共享密钥";
+        RerankApiKeyHint = current.RerankApiKeySet ? "已配置：••••••••" : "留空则用上面那把共享密钥";
+        ChatApiKeyHint = current.ChatApiKeySet ? "已配置：••••••••" : "留空则用上面那把共享密钥";
     }
 
     [ObservableProperty]

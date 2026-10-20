@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config import Settings, default_data_dir, load_settings
+from app.config import Settings, default_data_dir, load_settings, mask_secret
 from app.core.openrouter import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIM,
@@ -167,6 +167,13 @@ def test_data_dir_override_updates_db_uri(tmp_path: Path) -> None:
     settings = load_settings(root=tmp_path, env_file=tmp_path / "不存在.env", data_dir=tmp_path / "便携")
 
     assert settings.db_uri == str(tmp_path / "便携" / "lancedb")
+
+
+def test_mask_secret_never_leaks_fragments() -> None:
+    """设置页只回固定圆点，连头尾字符都不露。"""
+    assert mask_secret("sk-or-abcdef123456") == "••••••••"
+    assert mask_secret("short") == "••••••••"
+    assert mask_secret("") == ""
 
 
 def test_db_uri_from_env_updates_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

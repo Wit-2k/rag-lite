@@ -489,7 +489,7 @@ def test_get_settings_masks_secrets(client: TestClient) -> None:
     body = client.get("/api/settings").json()
 
     assert body["api_key_set"] is True
-    assert body["api_key_hint"] and "fake-key" not in body["api_key_hint"]
+    assert body["api_key_hint"] == "••••••••", "提示里不能出现任何真实密钥片段"
     assert "fake-key" not in json.dumps(body), "响应里不该出现明文密钥"
     assert body["embed_dim"] == DIM
     assert body["store_dim"] == DIM

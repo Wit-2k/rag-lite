@@ -202,10 +202,8 @@ def env_file_path(root: Path | None = None) -> Path:
 
 
 def mask_secret(value: str) -> str:
-    """打码：只露头尾，用于回显「配了哪把钥匙」，绝不回传明文。"""
-    if not value:
-        return ""
-    return f"{value[:6]}…{value[-4:]}" if len(value) > 12 else "已配置"
+    """打码：只回固定圆点，连头尾片段也不露，避免设置页出现任何真实密钥字符。"""
+    return "••••••••" if value else ""
 
 
 def read_env_file(path: Path) -> dict[str, str]:
