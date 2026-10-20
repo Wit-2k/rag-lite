@@ -763,6 +763,15 @@ public partial class MainViewModel : ObservableObject
         {
             return;
         }
+        // 同一时间只允许一个会话处于编辑态；进入新的编辑前先把旧的恢复原样
+        foreach (var other in Sessions)
+        {
+            if (other != item && other.IsRenaming)
+            {
+                other.IsRenaming = false;
+                other.Title = other.Dto.Title;
+            }
+        }
         item.IsConfirmingDelete = false;
         item.IsRenaming = true;
     }

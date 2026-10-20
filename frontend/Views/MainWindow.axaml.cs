@@ -4,8 +4,10 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using frontend.Models;
 using frontend.Services;
 using frontend.ViewModels;
@@ -25,6 +27,32 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroup
         DataContextChanged += OnDataContextChanged;
         Closing += OnClosing;
         Opened += OnOpened;
+        // 预览阶段先看点击位置：点重命名框以外就取消编辑（点非焦点区域不会触发 LostFocus）
+        AddHandler(PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
+    }
+
+    /// <summary>点击重命名输入框以外的地方时退出编辑；点输入框内部时保持编辑。</summary>
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        var source = e.Source as Visual;
+        var box = e.Source as TextBox ?? source?.FindAncestorOfType<TextBox>();
+        if (box?.Tag is SessionItemViewModel { IsRenaming: true })
+        {
+            return;
+        }
+
+        foreach (var item in _viewModel.Sessions.Where(session => session.IsRenaming).ToList())
+        {
+            if (_viewModel.CancelRenameCommand.CanExecute(item))
+            {
+                _viewModel.CancelRenameCommand.Execute(item);
+            }
+        }
     }
 
     /// <summary>默认窗口外框为 1920×1200 物理像素；按当前屏幕缩放换算，放不下时收缩到工作区。</summary>
@@ -170,6 +198,18 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroup
         if (sender is TextBox box)
         {
             Dispatcher.UIThread.Post(() => box.Focus(), DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>重命名输入框失焦（点了别处）时放弃修改，避免编辑状态一直卡在列表里。</summary>
+    private void OnRenameBoxLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox { Tag: SessionItemViewModel item }
+            && _viewModel is not null
+            && item.IsRenaming
+            && _viewModel.CancelRenameCommand.CanExecute(item))
+        {
+            _viewModel.CancelRenameCommand.Execute(item);
         }
     }
 

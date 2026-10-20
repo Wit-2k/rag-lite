@@ -8,14 +8,10 @@
 
     <Application.Resources>
         <!-- 本项目自己的调色板。**刻意不用主题资源键**：一是避免上一轮那种「键名不存在 → 静默失效」，
-             二是这套浅色/奶白是固定取向，不必跟随系统深浅色主题变来变去。 -->
+             二是这套浅色/白灰是固定取向，不必跟随系统深浅色主题变来变去。 -->
         <SolidColorBrush x:Key="RagWhite">#FFFFFFFF</SolidColorBrush>       <!-- 纯白：窗口与对话区 -->
         <SolidColorBrush x:Key="RagSurface">#FFFAFAFA</SolidColorBrush>     <!-- 极浅灰：侧栏、卡片内的小块 -->
         <SolidColorBrush x:Key="RagHairline">#FFE8E8E8</SolidColorBrush>    <!-- 浅灰描边：卡片、分隔线 -->
-        <SolidColorBrush x:Key="RagCream">#FFFFFDF6</SolidColorBrush>       <!-- 奶白：按钮底 -->
-        <SolidColorBrush x:Key="RagCreamHover">#FFFFF8E8</SolidColorBrush>  <!-- 奶白·悬停 -->
-        <SolidColorBrush x:Key="RagCreamPressed">#FFFBF0D8</SolidColorBrush><!-- 奶白·按下 -->
-        <SolidColorBrush x:Key="RagButtonBorder">#FFE0E0E0</SolidColorBrush><!-- 按钮的浅灰边框 -->
     </Application.Resources>
 
     <Application.DataTemplates>
@@ -40,37 +36,8 @@
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI, -apple-system, sans-serif" />
         </Style>
 
-        <!-- 所有按钮默认底色：奶白 + 浅灰边框（强调色按钮在后面单独覆盖，顺序不能反） -->
-        <Style Selector="Button">
-            <Setter Property="Background" Value="{DynamicResource RagCream}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource RagButtonBorder}" />
-            <Setter Property="BorderThickness" Value="1" />
-        </Style>
-        <Style Selector="Button:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource RagCreamHover}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource RagButtonBorder}" />
-        </Style>
-        <Style Selector="Button:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource RagCreamPressed}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource RagButtonBorder}" />
-        </Style>
-
-        <!-- Accent 主操作按钮样式（强调色，保持与系统强调色协调） -->
-        <Style Selector="Button.accent">
-            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorOnAccentDefaultBrush}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AccentFillColorSecondaryBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
-        </Style>
-        <Style Selector="Button.accent:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AccentFillColorTertiaryBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
-        </Style>
+        <!-- 按钮直接使用 FluentAvalonia 自带的 Button 主题：默认按钮和 Classes="accent"
+             的强调色样式都由包提供，这里不再覆盖 Background/Border 或模板内部。 -->
 
         <!-- 卡片式容器基础样式，营造 Windows Fluent 层次感 -->
         <Style Selector="Border.card">

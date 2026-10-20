@@ -51,9 +51,10 @@
                                   FontSize="12"
                                   HorizontalAlignment="Stretch"
                                   ToolTip.Tip="只显示某个分组的数据源（仅影响这个列表）" />
-                        <Button Grid.Column="2" Content="管理" FontSize="12" Padding="8,2" Margin="6,0,0,0"
+                        <Button Grid.Column="2" Content="管理" FontSize="12"
+                                MinHeight="32" Padding="10,0" Margin="6,0,0,0"
                                 Command="{Binding ManageGroupsCommand}"
-                                ToolTip.Tip="新建 / 改名 / 删除分组" />
+                                ToolTip.Tip="新建 / 改名 / 删除分组，或在组内添加 / 移出数据源" />
                     </Grid>
 
                     <!-- 后端准备与状态提示 -->
@@ -179,60 +180,67 @@
                          Background="Transparent"
                          BorderThickness="0"
                          Margin="0,12,0,0">
+                    <ListBox.Styles>
+                        <!-- 卡片只做一层：ListBoxItem 自己就是会话卡片，模板里不再套 Border -->
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="Background" Value="{DynamicResource RagSurface}" />
+                            <Setter Property="BorderBrush" Value="{DynamicResource RagHairline}" />
+                            <Setter Property="BorderThickness" Value="1" />
+                            <Setter Property="CornerRadius" Value="6" />
+                            <Setter Property="Padding" Value="10,8" />
+                            <Setter Property="Margin" Value="0,0,0,8" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListBox.Styles>
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:SessionItemViewModel">
-                            <Border Background="{DynamicResource RagSurface}"
-                                    BorderBrush="{DynamicResource RagHairline}"
-                                    BorderThickness="1"
-                                    CornerRadius="6"
-                                    Padding="10,8">
-                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                                    <!-- 标题：平时是文字，重命名时换成输入框 -->
-                                    <TextBlock Grid.Row="0" Grid.Column="0"
-                                               Text="{Binding Title}"
-                                               IsVisible="{Binding !IsRenaming}"
-                                               TextTrimming="CharacterEllipsis"
-                                               DoubleTapped="OnSessionTitleDoubleTapped"
-                                               ToolTip.Tip="{Binding Title}"
-                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                                    <TextBox Grid.Row="0" Grid.Column="0"
-                                             Text="{Binding Title}"
-                                             IsVisible="{Binding IsRenaming}"
-                                             AttachedToVisualTree="OnRenameBoxAttached"
-                                             KeyDown="OnRenameKeyDown"
-                                             Tag="{Binding}"
-                                             FontSize="13" />
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                <!-- 标题：平时是文字，重命名时换成输入框 -->
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="{Binding Title}"
+                                           IsVisible="{Binding !IsRenaming}"
+                                           TextTrimming="CharacterEllipsis"
+                                           DoubleTapped="OnSessionTitleDoubleTapped"
+                                           ToolTip.Tip="{Binding Title}"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                <TextBox Grid.Row="0" Grid.Column="0"
+                                         Text="{Binding Title}"
+                                         IsVisible="{Binding IsRenaming}"
+                                         AttachedToVisualTree="OnRenameBoxAttached"
+                                         KeyDown="OnRenameKeyDown"
+                                         LostFocus="OnRenameBoxLostFocus"
+                                         Tag="{Binding}"
+                                         FontSize="13" />
 
-                                    <!-- 行尾操作：左上「✎」进重命名，删除第一次点是确认 -->
-                                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="4"
-                                                VerticalAlignment="Center">
-                                        <Button Content="✎" FontSize="12" Padding="6,2"
-                                                IsVisible="{Binding !IsRenaming}"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).BeginRenameCommand}"
-                                                CommandParameter="{Binding}"
-                                                ToolTip.Tip="重命名（也可以双击标题）" />
-                                        <Button Content="×" FontSize="12" Padding="6,2"
-                                                IsVisible="{Binding !IsConfirmingDelete}"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DeleteSessionCommand}"
-                                                CommandParameter="{Binding}"
-                                                ToolTip.Tip="删除会话（连同聊天记录）" />
-                                        <Button Content="确定删除"
-                                                IsVisible="{Binding IsConfirmingDelete}"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DeleteSessionCommand}"
-                                                CommandParameter="{Binding}" />
-                                        <Button Content="取消"
-                                                IsVisible="{Binding IsConfirmingDelete}"
-                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CancelDeleteCommand}"
-                                                CommandParameter="{Binding}" />
-                                    </StackPanel>
+                                <!-- 行尾操作：左上「✎」进重命名，删除第一次点是确认 -->
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                            VerticalAlignment="Center">
+                                    <Button Content="✎" FontSize="12" Padding="6,2"
+                                            IsVisible="{Binding !IsRenaming}"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).BeginRenameCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="重命名（也可以双击标题）" />
+                                    <Button Content="×" FontSize="12" Padding="6,2"
+                                            IsVisible="{Binding !IsConfirmingDelete}"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DeleteSessionCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="删除会话（连同聊天记录）" />
+                                    <Button Content="确定删除"
+                                            IsVisible="{Binding IsConfirmingDelete}"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DeleteSessionCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Content="取消"
+                                            IsVisible="{Binding IsConfirmingDelete}"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CancelDeleteCommand}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
 
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                               Text="{Binding Subtitle}"
-                                               FontSize="11"
-                                               Margin="0,4,0,0"
-                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                                </Grid>
-                            </Border>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Text="{Binding Subtitle}"
+                                           FontSize="11"
+                                           Margin="0,4,0,0"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                            </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
