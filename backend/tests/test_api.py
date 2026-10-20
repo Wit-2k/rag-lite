@@ -23,6 +23,7 @@ from app.config import Settings
 from app.core import query as query_module
 from app.core.openrouter import ChatUsage, EmbedResult, EmbedUsage, RerankResult
 from app.core.schema import chunk_row, source_id_for, utc_now
+from app.core.sessions import NO_SOURCES_SCOPE
 from app.core.store import Store
 
 DIM = 4
@@ -387,6 +388,26 @@ def test_chat_streams_sources_tokens_done(client: TestClient) -> None:
     assert done["type"] == "done"
     assert done["usage"]["prompt_tokens"] == 42
     assert done["seconds"] >= 0
+
+
+def test_no_sources_scope_skips_retrieval(client: TestClient, chat: FakeChat) -> None:
+    """「不使用数据源」是显式空范围：会话能创建/切换，检索一条都不做。"""
+    created = client.post("/api/sessions", json={"group_id": NO_SOURCES_SCOPE})
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+    assert created.json()["group_id"] == NO_SOURCES_SCOPE
+
+    updated = client.put(f"/api/sessions/{session_id}/group", json={"group_id": NO_SOURCES_SCOPE})
+    assert updated.status_code == 200
+
+    with client.stream("POST", "/api/chat", json={"question": "有资料吗？", "session_id": session_id}) as response:
+        assert response.status_code == 200
+        response.read()
+        frames = sse_frames(response)
+
+    assert frames[0]["type"] == "sources" and frames[0]["items"] == []
+    assert chat.calls[-1] == [{"role": "user", "content": "有资料吗？"}], \
+        "不使用数据源时不要注入文档问答 SYSTEM_PROMPT 或参考片段"
 
 
 def test_chat_keeps_history_and_clear_empties_it(client: TestClient, chat: FakeChat) -> None:

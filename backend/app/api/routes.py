@@ -43,7 +43,7 @@ from app.core.ingest import ingest, remove_source
 from app.core.openrouter import ALLOWED_DIMS
 from app.core.query import ChatSession, DoneEvent, RetrievalEvent, TokenEvent
 from app.core.schema import source_id_for
-from app.core.sessions import DEFAULT_TITLE, SessionStore
+from app.core.sessions import DEFAULT_TITLE, NO_SOURCES_SCOPE, SessionStore
 from app.core.store import Store, StoreError
 
 router = APIRouter(prefix="/api")
@@ -216,6 +216,7 @@ def build_chat_session(request: Request, session_id: str) -> ChatSession:
     """
     settings = request.app.state.settings
     sessions = get_sessions(request)
+    session_row = sessions.get(session_id) or {}
     return ChatSession(
         get_store(request),
         api_key=settings.embed_key,  # 兜底：三个角色都没单独配时用共享密钥
@@ -232,6 +233,7 @@ def build_chat_session(request: Request, session_id: str) -> ChatSession:
         context_n=settings.context_n,
         history=sessions.history(session_id),
         source_ids=retrieval_scope(request, session_id),
+        grounded=session_row.get("group_id") != NO_SOURCES_SCOPE,
     )
 
 
@@ -239,10 +241,13 @@ def retrieval_scope(request: Request, session_id: str) -> list[str] | None:
     """这个会话该在哪些数据源里检索。
 
     - 没绑分组（老会话、或选了「全部数据源」）→ None：不限制
+    - 绑了 ``__no_sources__`` → 空列表：明确不使用任何数据源
     - 绑了分组 → 只搜那一组里的数据源；分组里为空就是空列表（一条都不搜，不会退回全库）
     - 分组已经不存在（比如手工改过库）→ 退回 None，与不带分组的老行为一致
     """
     group_id = (get_sessions(request).get(session_id) or {}).get("group_id")
+    if group_id == NO_SOURCES_SCOPE:
+        return []   # 明确不使用数据源：一条都不搜
     if not group_id:
         return None
     groups = get_groups(request)
@@ -263,7 +268,7 @@ def list_sessions(request: Request) -> list[SessionOut]:
 @router.post("/sessions", response_model=SessionOut, status_code=201, responses={404: {"model": ErrorOut}})
 def create_session(payload: SessionCreateIn, request: Request) -> SessionOut:
     """新建会话（标题留空则用默认名，发出第一个问题后会自动命名）。"""
-    if payload.group_id and get_groups(request).get(payload.group_id) is None:
+    if payload.group_id and payload.group_id != NO_SOURCES_SCOPE and get_groups(request).get(payload.group_id) is None:
         raise HTTPException(status_code=404, detail=f"没有这个分组：{payload.group_id}")
     row = get_sessions(request).create(payload.title or DEFAULT_TITLE, group_id=payload.group_id)
     return SessionOut(**row)
@@ -298,12 +303,12 @@ def session_messages(session_id: str, request: Request) -> list[MessageOut]:
 
 @router.put("/sessions/{session_id}/group", response_model=SessionOut, responses={404: {"model": ErrorOut}})
 def set_session_group(session_id: str, payload: SessionGroupIn, request: Request) -> SessionOut:
-    """设置某个会话的检索范围：绑一个数据源分组，或传 null 表示「全部数据源」。
+    """设置某个会话的检索范围：绑一个数据源分组、传 null 表示「全部数据源」，或传 ``__no_sources__`` 表示「不使用数据源」。
 
     只影响之后的问题（已经答过的内容不动），也不会把会话顶到列表最前面。
     """
     groups = get_groups(request)
-    if payload.group_id is not None and groups.get(payload.group_id) is None:
+    if payload.group_id is not None and payload.group_id != NO_SOURCES_SCOPE and groups.get(payload.group_id) is None:
         raise HTTPException(status_code=404, detail=f"没有这个分组：{payload.group_id}")
     sessions = get_sessions(request)
     if not sessions.set_group(session_id, payload.group_id):

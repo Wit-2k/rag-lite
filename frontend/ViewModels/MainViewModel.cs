@@ -258,7 +258,7 @@ public partial class MainViewModel : ObservableObject
 
         var scopeId = SelectedScope?.GroupId;
         ScopeOptions.Clear();
-        foreach (var option in GroupScopeOption.Build(Groups, includeUngrouped: false))
+        foreach (var option in GroupScopeOption.Build(Groups, includeUngrouped: false, includeNoSources: true))
         {
             ScopeOptions.Add(option);
         }
@@ -319,7 +319,12 @@ public partial class MainViewModel : ObservableObject
             return;
         }
         var session = CurrentSession;
-        var groupId = value.Kind == GroupScopeKind.Group ? value.GroupId : null;
+        var groupId = value.Kind switch
+        {
+            GroupScopeKind.Group => value.GroupId,
+            GroupScopeKind.NoSources => GroupScopeOption.NoSourcesGroupId,
+            _ => null,
+        };
         if (session.Dto.GroupId == groupId)
         {
             return;
@@ -339,9 +344,12 @@ public partial class MainViewModel : ObservableObject
             session.Update(updated);
             ApplyGroupNames();
             // 换范围只影响之后的问题，所以这里不重载消息，只提示一句
-            Status = groupId is null
-                ? $"会话「{session.Title}」的检索范围：全部数据源"
-                : $"会话「{session.Title}」的检索范围：{Groups.FirstOrDefault(g => g.GroupId == groupId)?.Name}";
+            Status = groupId switch
+            {
+                GroupScopeOption.NoSourcesGroupId => $"会话「{session.Title}」的检索范围：不使用数据源",
+                null => $"会话「{session.Title}」的检索范围：全部数据源",
+                _ => $"会话「{session.Title}」的检索范围：{Groups.FirstOrDefault(g => g.GroupId == groupId)?.Name}",
+            };
             UpdateScopeWarning();
         }
         catch (Exception ex)
@@ -354,6 +362,11 @@ public partial class MainViewModel : ObservableObject
     /// <summary>当前范围对应的分组里一个数据源都没有时，给一句提醒（否则问了会答「没有依据」）。</summary>
     private void UpdateScopeWarning()
     {
+        if (SelectedScope?.Kind == GroupScopeKind.NoSources)
+        {
+            ScopeWarning = "";   // 下拉框本身已经写明「不使用数据源」，不再加长提示挤占右侧按钮
+            return;
+        }
         var groupId = SelectedScope?.GroupId;
         if (groupId is null)
         {
@@ -370,9 +383,12 @@ public partial class MainViewModel : ObservableObject
         foreach (var session in Sessions)
         {
             var groupId = session.Dto.GroupId;
-            session.GroupName = groupId is null
-                ? ""
-                : Groups.FirstOrDefault(group => group.GroupId == groupId)?.Name ?? "（已删除的分组）";
+            session.GroupName = groupId switch
+            {
+                null => "",
+                GroupScopeOption.NoSourcesGroupId => "不使用数据源",
+                _ => Groups.FirstOrDefault(group => group.GroupId == groupId)?.Name ?? "（已删除的分组）",
+            };
         }
     }
 
@@ -590,8 +606,9 @@ public partial class MainViewModel : ObservableObject
             await RefreshSessionsAsync();
             if (Sessions.Count == 0)
             {
-                var created = await _api.CreateSessionAsync();
+                var created = await _api.CreateSessionAsync(null, DefaultScopeForNewSession());
                 Sessions.Add(new SessionItemViewModel(created));
+                ApplyGroupNames();
             }
             if (CurrentSession is null)
             {
@@ -681,6 +698,16 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>新建会话的默认检索范围：没有数据源时用「不使用数据源」，否则沿用左栏筛选的分组。</summary>
+    private string? DefaultScopeForNewSession()
+    {
+        if (Sources.Count == 0)
+        {
+            return GroupScopeOption.NoSourcesGroupId;
+        }
+        return SelectedGroupFilter?.Kind == GroupScopeKind.Group ? SelectedGroupFilter.GroupId : null;
+    }
+
     /// <summary>新建会话并切过去。</summary>
     [RelayCommand]
     private async Task NewSessionAsync()
@@ -691,8 +718,8 @@ public partial class MainViewModel : ObservableObject
         }
         try
         {
-            // 新建的会话默认沿用左栏当前筛选的分组（选了「全部数据源」或「未分组」就是全部数据源）
-            var groupId = SelectedGroupFilter?.Kind == GroupScopeKind.Group ? SelectedGroupFilter.GroupId : null;
+            // 新建的会话默认沿用左栏当前筛选的分组；一个数据源都没有时默认「不使用数据源」
+            var groupId = DefaultScopeForNewSession();
             var created = await _api.CreateSessionAsync(null, groupId);
             var item = new SessionItemViewModel(created);
             Sessions.Insert(0, item);
@@ -700,9 +727,12 @@ public partial class MainViewModel : ObservableObject
             CurrentSession = item;
             ApplyGroupNames();
             Messages.Clear();
-            Status = groupId is null
-                ? "已新建会话，直接提问即可（标题会按第一个问题自动生成）"
-                : $"已新建会话，检索范围：{Groups.FirstOrDefault(g => g.GroupId == groupId)?.Name}";
+            Status = groupId switch
+            {
+                GroupScopeOption.NoSourcesGroupId => "已新建会话，检索范围：不使用数据源",
+                null => "已新建会话，直接提问即可（标题会按第一个问题自动生成）",
+                _ => $"已新建会话，检索范围：{Groups.FirstOrDefault(g => g.GroupId == groupId)?.Name}",
+            };
         }
         catch (Exception ex)
         {

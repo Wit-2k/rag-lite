@@ -127,11 +127,22 @@ def build_messages(
     history: list[dict],
     *,
     system_prompt: str = SYSTEM_PROMPT,
+    grounded: bool = True,
 ) -> list[dict]:
     """拼出完整 messages：系统提示词 + 全部历史 + 本轮（参考片段 + 问题）。
 
     history 里是历史各轮的原始问答，按时间顺序原样带上；参考片段只属于本轮。
+    ``grounded=False`` 用于显式「不使用数据源」：不注入 SYSTEM_PROMPT，也不拼参考片段，
+    本轮就是普通提问（历史照常保留）。
     """
+    if not grounded:
+        messages = [
+            {"role": item["role"], "content": item["content"]}
+            for item in history
+        ]
+        messages.append({"role": "user", "content": question})
+        return messages
+
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     messages.extend({"role": item["role"], "content": item["content"]} for item in history)
 
@@ -176,6 +187,7 @@ class ChatSession:
         rerank_doc_chars: int | None = None,
         history: list[dict] | None = None,
         source_ids: Iterable[str] | None = None,
+        grounded: bool = True,
     ) -> None:
         self.store = store
         self.api_key = api_key
@@ -196,6 +208,8 @@ class ChatSession:
         self.history: list[dict] = list(history or [])
         # 检索范围：None = 不限制（全部数据源）；给了列表就只在这个范围里搜（空列表 = 一条都不搜）
         self.source_ids: list[str] | None = None if source_ids is None else list(source_ids)
+        # 显式「不使用数据源」时变成普通聊天：不注入文档问答系统提示词
+        self.grounded = grounded
 
     # —— 上下文管理 ————————————————————————————————————————————
 
@@ -304,7 +318,7 @@ class ChatSession:
         sources = self.retrieve(question)
         yield RetrievalEvent(sources=sources)
 
-        messages = build_messages(question, sources, self.history)
+        messages = build_messages(question, sources, self.history, grounded=self.grounded)
         pieces: list[str] = []
         for piece in self.chat.send(messages):
             pieces.append(piece)

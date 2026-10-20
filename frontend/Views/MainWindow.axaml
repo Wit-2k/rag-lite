@@ -282,6 +282,7 @@
                             <TextBlock Text="{Binding ScopeWarning}"
                                        FontSize="12"
                                        VerticalAlignment="Center"
+                                       MaxWidth="180"
                                        TextWrapping="Wrap"
                                        Foreground="#D97706"
                                        IsVisible="{Binding ScopeWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />

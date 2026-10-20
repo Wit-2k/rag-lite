@@ -33,14 +33,14 @@ class SessionOut(BaseModel):
     created_at: str
     updated_at: str
     message_count: int = 0
-    group_id: str | None = None  # 检索范围：绑定的数据源分组；None = 全部数据源
+    group_id: str | None = None  # 检索范围：分组 id；None = 全部数据源；__no_sources__ = 不使用数据源
 
 
 class SessionCreateIn(BaseModel):
     """新建会话；标题留空则用默认名（发出第一个问题后会自动命名）。"""
 
     title: str | None = Field(default=None, max_length=200)
-    group_id: str | None = None  # 顺手绑定检索范围（None = 全部数据源）
+    group_id: str | None = None  # 顺手绑定检索范围（None = 全部数据源；__no_sources__ = 不使用）
 
 
 class SessionRenameIn(BaseModel):
@@ -111,7 +111,7 @@ class SourceGroupsIn(BaseModel):
 
 
 class SessionGroupIn(BaseModel):
-    """设置某个会话的检索范围；`group_id=null` 表示「全部数据源」。"""
+    """设置某个会话的检索范围；`group_id=null` = 全部数据源，`__no_sources__` = 不使用数据源。"""
 
     group_id: str | None = None
 

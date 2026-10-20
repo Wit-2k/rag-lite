@@ -24,6 +24,8 @@ from typing import Iterator
 from app.core.schema import utc_now
 
 DEFAULT_TITLE = "新会话"
+# 特殊检索范围：不使用任何数据源（不建真实分组，只作为 session.group_id 的哨兵值）
+NO_SOURCES_SCOPE = "__no_sources__"
 TITLE_MAX_CHARS = 24  # 自动起标题时截断长度（后面加省略号）
 
 _SCHEMA = """
@@ -35,7 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- 列表排序用的单调序号：updated_at 是秒精度（跟向量库那份数据统一），
     -- 同一秒里建两个会话、或者建完立刻提问，时间戳会打平 → 靠 seq 才能稳定排出「最近在用」
     seq        INTEGER NOT NULL DEFAULT 0,
-    -- 检索范围：绑定的数据源分组；NULL = 全部数据源（老会话就是它，行为不变）
+    -- 检索范围：绑定分组 id；NULL = 全部数据源；__no_sources__ = 不使用数据源
     group_id   TEXT
 );
 
@@ -128,7 +130,7 @@ class SessionStore:
                 "updated_at": now, "message_count": 0, "group_id": group_id}
 
     def set_group(self, session_id: str, group_id: str | None) -> bool:
-        """改这个会话的检索范围（None = 全部数据源）。
+        """改这个会话的检索范围（None = 全部数据源；__no_sources__ = 不使用数据源）。
 
         刻意不动 `updated_at` / `seq`：换个检索范围不算「用了它」，
         不该把会话顶到列表最前面（列表顺序只该跟着真的问答走）。

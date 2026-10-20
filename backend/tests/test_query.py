@@ -382,3 +382,6 @@ def test_build_messages_layout() -> None:
     assert messages[1] == {"role": "user", "content": "旧问题"}
     assert messages[2]["content"].startswith("参考片段：")
     assert "[来源 1] 手册.pdf · 第一章" in messages[2]["content"]
+
+    plain = build_messages("普通问题", [], [], grounded=False)
+    assert plain == [{"role": "user", "content": "普通问题"}], "不使用数据源时是普通聊天"

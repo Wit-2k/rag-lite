@@ -14,7 +14,7 @@
 ```bash
 uv sync                                  # 装依赖
 cp .env.example .env                     # 然后把 OPENROUTER_API_KEY 填进去（.env 已被 git 忽略）
-uv run pytest -q                         # 199 条测试，默认只有 3 条会真打接口
+uv run pytest -q                         # 200 条测试，默认只有 3 条会真打接口
 uv run python main.py                    # 起服务，默认 127.0.0.1:17650
 ```
 
@@ -68,7 +68,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | PUT | `/api/sessions/{id}` | 重命名会话 |
 | DELETE | `/api/sessions/{id}` | 删除会话及其聊天记录 |
 | GET | `/api/sessions/{id}/messages` | 某会话的全部消息（含助手消息附带的来源 JSON） |
-| PUT | `/api/sessions/{id}/group` | 设置会话检索范围；`group_id=null` 表示全部数据源 |
+| PUT | `/api/sessions/{id}/group` | 设置会话检索范围；`group_id=null` 表示全部数据源，`__no_sources__` 表示不使用数据源 |
 | GET | `/api/groups` | 分组列表（带成员数） |
 | POST | `/api/groups` | 新建分组（重名或保留名返回 409） |
 | PUT | `/api/groups/{id}` | 重命名分组 |
