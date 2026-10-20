@@ -36,10 +36,10 @@
         <!-- 顶部：说明 + 新建 -->
         <StackPanel DockPanel.Dock="Top" Spacing="10">
             <TextBlock Text="分组管理" FontSize="16" FontWeight="SemiBold"
-                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
             <TextBlock FontSize="12"
                        TextWrapping="Wrap"
-                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                        Text="分组只决定「检索范围」：会话绑定某个分组后，提问只在该分组的数据源里检索，数据源本身不会被搬动。一个数据源可以同时属于多个分组；删掉分组后，组里的数据源回到「未分组」。" />
 
             <Grid ColumnDefinitions="*,Auto">
@@ -59,7 +59,7 @@
             <TextBlock Text="还没有分组。新建一个，然后在左侧数据源卡片上点「分组」把它放进去。"
                        FontSize="12"
                        TextWrapping="Wrap"
-                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                        IsVisible="{Binding IsEmpty}" />
 
             <ListBox ItemsSource="{Binding Groups}"
@@ -111,7 +111,7 @@
                                            Text="{Binding Subtitle}"
                                            FontSize="11"
                                            Margin="0,4,0,0"
-                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                             </Grid>
                         </Border>
                     </DataTemplate>

@@ -106,7 +106,7 @@ cd backend && uv run pytest -q     # 187 passed；只有 3 条会真调接口，
 | 一次检索 + 重排（20 篇候选） | ≈ $0.0006 |
 | 一轮回答（3 条片段） | ≈ $0.0007 |
 | 检索质量 | 5 个真实问题：用余弦召回 + `rerank-3` 后全部命中正确章节 |
-| 便携包 | zip 203.4MB / 解包 538MB（`RagLite.exe` 单文件 150.7MB + 后端 387.3MB） |
+| 便携包 | zip 207.5MB / 解包 549.7MB（`RagLite.exe` 单文件 162.4MB + 后端 387.3MB） |
 | 启动 | 双击到「后端就绪」约 1.8s |
 
 ## 目录结构
@@ -150,4 +150,4 @@ zip/              打包脚本与给最终用户的说明
 
 ## 技术栈
 
-Python 3.14 · uv · FastAPI · LanceDB · chonkie · openai SDK · Avalonia 12.1.4 (.NET 10) · CommunityToolkit.Mvvm · Markdown.Avalonia 12.0.2 · PyInstaller 6.22
+Python 3.14 · uv · FastAPI · LanceDB · chonkie · openai SDK · Avalonia 12.1.4 (.NET 10) · FluentAvaloniaUI 3.1.0 · CommunityToolkit.Mvvm · Markdown.Avalonia 12.0.2 · PyInstaller 6.22

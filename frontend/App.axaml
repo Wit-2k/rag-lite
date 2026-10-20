@@ -1,9 +1,10 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sty="using:FluentAvalonia.Styling"
              x:Class="frontend.App"
              xmlns:local="using:frontend"
-             RequestedThemeVariant="Default">
-             <!-- "Default" 跟随系统主题；也可改成 "Dark" / "Light" -->
+             RequestedThemeVariant="Light">
+             <!-- 固定浅色：下面的 Rag* 奶白/白色调色板是按浅色设计的，跟随系统深色会读不清 -->
 
     <Application.Resources>
         <!-- 本项目自己的调色板。**刻意不用主题资源键**：一是避免上一轮那种「键名不存在 → 静默失效」，
@@ -22,24 +23,16 @@
     </Application.DataTemplates>
 
     <Application.Styles>
-        <!-- 资源键命名注意（2026-10 逐个在主题字典里核对过）：
-             Avalonia 12 的 Fluent 主题用的是 SystemControl* 那一代命名，**没有** WinUI3 的
-             TextFillColor* / Card* / Layer* / DividerStroke* / SolidBackgroundFillColor* /
-             ApplicationPageBackgroundThemeBrush（AccentButton* 倒是有）。
-             更要紧的是：DynamicResource 找不到键时 Avalonia **不抛异常、不写日志**，只是属性不生效——
-             「能跑起来」不等于「样式生效」。对照关系：
-               TextFillColorPrimary/Secondary/TertiaryBrush -> SystemControlForegroundBaseHigh/BaseMedium/BaseMediumLowBrush
-               CardBackgroundFillColorDefaultBrush          -> SystemControlBackgroundChromeMediumLowBrush
-               CardStrokeColorDefaultBrush / DividerStroke  -> SystemControlForegroundBaseLowBrush
-               LayerFillColorDefaultBrush                   -> SystemControlBackgroundListLowBrush
-               SolidBackgroundFillColorBaseBrush            -> SystemControlBackgroundAltHighBrush
-               ApplicationPageBackgroundThemeBrush / LayerOnMica... -> SystemControlPageBackgroundChromeLowBrush
-        -->
-        <FluentTheme />
-        <!-- Markdown.Avalonia 的排版样式由控件自己按 MarkdownStyleName 加载（默认 FluentTheme），
+        <!-- FluentAvaloniaTheme 提供 WinUI Fluent v2 的样式与资源。
+             官方 Getting Started 明确要求：不要再同时加入 Avalonia 的 FluentTheme / SimpleTheme，
+             否则两套样式会互相覆盖、出现视觉异常。
+             资源键也跟着换成 Fluent v2 命名（TextFillColor* / Card* / AccentFillColor*）；
+             旧 FluentTheme 的 SystemControl* 键在这里没有定义，DynamicResource 找不到时不会报错、只会静默失效。 -->
+        <sty:FluentAvaloniaTheme PreferSystemTheme="False" PreferUserAccentColor="True" />
+        <!-- Markdown.Avalonia 的排版样式由控件自己按 MarkdownStyleName 加载（默认它自带的 Fluent 风格），
              这里不用再 StyleInclude；若以后要换风格，可显式引入
              avares://Markdown.Avalonia/StyleCollections/MarkdownStyle*.axaml。
-             版本注意：必须用 12.0.0-a3 及以上——11.0.3 是按 Avalonia 11 编译的，在 Avalonia 12 下会抛
+             版本注意：固定 12.0.2——11.x 是按 Avalonia 11 编译的，在 Avalonia 12 下会抛
              MissingMethodException（DynamicResourceExtension.ProvideValue），实测踩过。 -->
 
         <!-- 全局字体栈：优先使用 Windows 11 Fluent 字体，搭配微软雅黑，保障中英文字体清晰优雅 -->
@@ -64,27 +57,27 @@
 
         <!-- Accent 主操作按钮样式（强调色，保持与系统强调色协调） -->
         <Style Selector="Button.accent">
-            <Setter Property="Background" Value="{DynamicResource AccentButtonBackground}" />
-            <Setter Property="Foreground" Value="{DynamicResource AccentButtonForeground}" />
+            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentButtonBorderBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorOnAccentDefaultBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundPointerOver}" />
-            <Setter Property="Foreground" Value="{DynamicResource AccentButtonForegroundPointerOver}" />
+            <Setter Property="Background" Value="{DynamicResource AccentFillColorSecondaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
         </Style>
         <Style Selector="Button.accent:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundPressed}" />
-            <Setter Property="Foreground" Value="{DynamicResource AccentButtonForegroundPressed}" />
+            <Setter Property="Background" Value="{DynamicResource AccentFillColorTertiaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
         </Style>
 
         <!-- 卡片式容器基础样式，营造 Windows Fluent 层次感 -->
         <Style Selector="Border.card">
-            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="{DynamicResource OverlayCornerRadius}" />
             <Setter Property="Padding" Value="14" />
         </Style>
     </Application.Styles>

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FluentAvalonia.UI.Controls;
 using frontend.Models;
 using frontend.Services;
 
@@ -48,6 +49,10 @@ public partial class MainViewModel : ObservableObject
     /// <summary>配置提示：密钥没配、有数据源需要重导时显示在对话区顶部。</summary>
     [ObservableProperty]
     public partial string ConfigHint { get; set; } = "";
+
+    /// <summary>配置提示的严重级别：有缺失/过期项用 Warning，正常状态用 Informational。</summary>
+    [ObservableProperty]
+    public partial FAInfoBarSeverity ConfigSeverity { get; set; } = FAInfoBarSeverity.Informational;
 
     [ObservableProperty]
     public partial string Question { get; set; } = "";
@@ -160,6 +165,9 @@ public partial class MainViewModel : ObservableObject
             await RefreshSessionsAsync();
             IsReady = true;
             ConfigHint = BuildHint(Health);
+            ConfigSeverity = !Health.Configured || Health.SourcesStale > 0
+                ? FAInfoBarSeverity.Warning
+                : FAInfoBarSeverity.Informational;
             Status = $"库内 {Health.Chunks} 块 / {Health.Sources} 个数据源";
         }
         catch (Exception ex)
@@ -183,7 +191,7 @@ public partial class MainViewModel : ObservableObject
             hints.Add($"有 {health.SourcesStale} 个数据源是用别的嵌入模型入库的，建议在左侧重新导入");
         }
         return hints.Count == 0
-            ? $"回答模型：{health.ChatModel}　嵌入：{health.EmbedModel}（{health.EmbedDim} 维）"
+            ? $"回答 {health.ChatModel.Split('/')[^1]} · 嵌入 {health.EmbedDim} 维"
             : string.Join("；", hints);
     }
 

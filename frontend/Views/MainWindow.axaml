@@ -1,16 +1,18 @@
+<!-- 默认窗口外框 1920×1200 物理像素；这里的 1280×800 是 150% 缩放下的 DIP 近似，启动时由 OnOpened 精确换算 -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:frontend.ViewModels"
+        xmlns:ui="using:FluentAvalonia.UI.Controls"
         xmlns:models="using:frontend.Models"
         xmlns:md="clr-namespace:Markdown.Avalonia.Full;assembly=Markdown.Avalonia.Full"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="760"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
         x:Class="frontend.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/book.ico"
         Title="rag-lite — 本地文档问答"
-        Width="1180" Height="760" MinWidth="1050" MinHeight="600"
+        Width="1280" Height="800" MinWidth="1050" MinHeight="600"
         TransparencyLevelHint="Mica,AcrylicBlur"
         Background="{DynamicResource RagWhite}">
 
@@ -26,7 +28,7 @@
                 <!-- 顶部操作区 -->
                 <StackPanel DockPanel.Dock="Top" Spacing="10">
                     <TextBlock Text="数据源" FontSize="16" FontWeight="SemiBold"
-                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Content="批量添加目录…"
@@ -41,7 +43,7 @@
                     <Grid ColumnDefinitions="Auto,*,Auto">
                         <TextBlock Grid.Column="0" Text="分组" FontSize="12" VerticalAlignment="Center"
                                    Margin="0,0,6,0"
-                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding GroupFilters}"
                                   SelectedItem="{Binding SelectedGroupFilter}"
@@ -63,7 +65,7 @@
                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <TextBlock Text="{Binding Status}"
                                    FontSize="12"
-                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    TextWrapping="Wrap" />
                     </Border>
                 </StackPanel>
@@ -74,7 +76,7 @@
                            FontSize="12"
                            TextWrapping="Wrap"
                            VerticalAlignment="Top"
-                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                            IsVisible="{Binding SourceFilterHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <ListBox ItemsSource="{Binding SourcesView}"
                          Background="Transparent"
@@ -101,16 +103,16 @@
                                     <TextBlock Text="{Binding Name}"
                                                FontWeight="SemiBold"
                                                FontSize="13"
-                                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding Subtitle}"
                                                FontSize="12"
-                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
 
                                     <!-- 所属分组（一个源可以同时在多个分组里） -->
                                     <TextBlock Text="{Binding GroupSummary}"
                                                FontSize="12"
-                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
 
                                     <!-- 警告标记：如目录丢失或维度不一致 -->
                                     <Border Background="#1FF59E0B"
@@ -136,7 +138,7 @@
 
                                     <TextBlock Text="{Binding Status}"
                                                FontSize="12"
-                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                TextWrapping="Wrap"
                                                IsVisible="{Binding HasStatus}" />
 
@@ -150,7 +152,7 @@
                                                         <TextBlock Text="放在哪些分组里" FontSize="12" FontWeight="SemiBold" />
                                                         <TextBlock Text="可以同时属于多个分组"
                                                                    FontSize="11"
-                                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                                         <ItemsControl ItemsSource="{Binding GroupToggles}">
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate x:DataType="vm:GroupToggleViewModel">
@@ -166,7 +168,7 @@
                                                         <TextBlock Text="还没有分组：点上方的「管理」新建一个"
                                                                    FontSize="11"
                                                                    TextWrapping="Wrap"
-                                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                                                    IsVisible="{Binding NoGroupsYet}" />
                                                     </StackPanel>
                                                 </Flyout>
@@ -197,7 +199,7 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Spacing="10">
                     <TextBlock Text="会话" FontSize="16" FontWeight="SemiBold"
-                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                     <Button Content="新建会话"
                             Classes="accent"
                             HorizontalAlignment="Stretch"
@@ -225,7 +227,7 @@
                                                TextTrimming="CharacterEllipsis"
                                                DoubleTapped="OnSessionTitleDoubleTapped"
                                                ToolTip.Tip="{Binding Title}"
-                                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                                     <TextBox Grid.Row="0" Grid.Column="0"
                                              Text="{Binding Title}"
                                              IsVisible="{Binding IsRenaming}"
@@ -261,7 +263,7 @@
                                                Text="{Binding Subtitle}"
                                                FontSize="11"
                                                Margin="0,4,0,0"
-                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -289,17 +291,12 @@
                         <TextBlock Text="对话"
                                    FontSize="16"
                                    FontWeight="SemiBold"
-                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
-                        <TextBlock Text="{Binding ConfigHint}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
-                                   TextWrapping="Wrap"
-                                   IsVisible="{Binding ConfigHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
 
                         <!-- 当前会话的检索范围：换它只影响之后的问题 -->
                         <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
                             <TextBlock Text="检索范围" FontSize="12" VerticalAlignment="Center"
-                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                             <ComboBox ItemsSource="{Binding ScopeOptions}"
                                       SelectedItem="{Binding SelectedScope}"
                                       DisplayMemberBinding="{Binding Name}"
@@ -325,6 +322,14 @@
                                 IsVisible="{Binding IsAsking}" />
                     </StackPanel>
                 </Grid>
+
+                <!-- 配置提示放在标题栏下方独立一行，避免被右侧按钮挤成多行 -->
+                <ui:FAInfoBar DockPanel.Dock="Top"
+                              Message="{Binding ConfigHint}"
+                              Severity="{Binding ConfigSeverity}"
+                              IsOpen="{Binding ConfigHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                              IsClosable="False"
+                              Margin="0,0,0,12" />
 
                 <!-- 底部输入栏：Windows 现代卡片输入条 -->
                 <Border DockPanel.Dock="Bottom"
@@ -365,12 +370,12 @@
                                             MaxWidth="780"
                                             CornerRadius="8,8,2,8"
                                             Padding="14,10"
-                                            Background="{DynamicResource AccentButtonBackground}"
-                                            BorderBrush="{DynamicResource AccentButtonBorderBrush}"
+                                            Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                            BorderBrush="{DynamicResource ControlStrokeColorOnAccentDefaultBrush}"
                                             BorderThickness="1"
                                             IsVisible="{Binding IsUser}">
                                         <SelectableTextBlock Text="{Binding Content}"
-                                                             Foreground="{DynamicResource AccentButtonForeground}"
+                                                             Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}"
                                                              TextWrapping="Wrap"
                                                              FontSize="13.5" />
                                     </Border>
@@ -395,7 +400,7 @@
                                                     IsVisible="{Binding HasSources}">
                                                 <TextBlock Text="{Binding SourcesText}"
                                                            FontSize="11.5"
-                                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                            TextWrapping="Wrap" />
                                             </Border>
 
@@ -405,7 +410,7 @@
                                             <!-- 耗时与 Token 元信息 -->
                                             <TextBlock Text="{Binding Meta}"
                                                        FontSize="11.5"
-                                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                                        IsVisible="{Binding HasMeta}" />
                                         </StackPanel>
                                     </Border>

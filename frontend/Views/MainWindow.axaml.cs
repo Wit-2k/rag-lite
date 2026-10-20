@@ -24,6 +24,37 @@ public partial class MainWindow : Window, IFolderPicker, ISettingsDialog, IGroup
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         Closing += OnClosing;
+        Opened += OnOpened;
+    }
+
+    /// <summary>默认窗口外框为 1920×1200 物理像素；按当前屏幕缩放换算，放不下时收缩到工作区。</summary>
+    private void OnOpened(object? sender, EventArgs e)
+    {
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        if (screen is null)
+        {
+            return;
+        }
+
+        var work = screen.WorkingArea;
+        var maxWidth = work.Width / screen.Scaling;
+        var maxHeight = work.Height / screen.Scaling;
+
+        // Width/Height 是客户区，FrameSize 才是含标题栏与边框的外框；先把物理像素目标换算成 DIP
+        var frame = FrameSize ?? new Size(Width, Height);
+        var extraWidth = Math.Max(0, frame.Width - Bounds.Width);
+        var extraHeight = Math.Max(0, frame.Height - Bounds.Height);
+        var desiredWidth = 1920 / screen.Scaling - extraWidth;
+        var desiredHeight = 1200 / screen.Scaling - extraHeight;
+        Width = Math.Min(desiredWidth, maxWidth - extraWidth);
+        Height = Math.Min(desiredHeight, maxHeight - extraHeight);
+
+        // 按外框的实际像素重新算居中位置；多屏时用窗口当前所在的那块屏幕
+        var pixelWidth = (int)Math.Round((Width + extraWidth) * screen.Scaling);
+        var pixelHeight = (int)Math.Round((Height + extraHeight) * screen.Scaling);
+        Position = new PixelPoint(
+            work.X + Math.Max(0, (work.Width - pixelWidth) / 2),
+            work.Y + Math.Max(0, (work.Height - pixelHeight) / 2));
     }
 
     /// <summary>点关闭键只是收进托盘：不结束进程，后端继续跑（导入、对话都还在）。
