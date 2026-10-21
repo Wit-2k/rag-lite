@@ -168,11 +168,11 @@ public partial class MainWindow : Window, IFolderPicker, IImagePicker, ISettings
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "选择图片（PNG / JPEG）",
+            Title = "选择图片（PNG / JPEG / WebP）",
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("图片") { Patterns = ["*.png", "*.jpg", "*.jpeg"] },
+                new FilePickerFileType("图片") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp"] },
             ],
         });
         return files.FirstOrDefault()?.TryGetLocalPath();

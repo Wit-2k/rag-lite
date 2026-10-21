@@ -292,8 +292,8 @@ def search_by_image(payload: ImageSearchIn, request: Request) -> ImageSearchOut:
     mime = payload.mime.lower()
     if mime == "image/jpg":
         mime = "image/jpeg"
-    if mime not in {"image/png", "image/jpeg"}:
-        raise HTTPException(status_code=400, detail="只支持 PNG 和 JPEG（jpg/jpeg）图片")
+    if mime not in {"image/png", "image/jpeg", "image/webp"}:
+        raise HTTPException(status_code=400, detail="只支持 PNG、JPEG（jpg/jpeg）和 WebP 图片")
     try:
         data = base64.b64decode(payload.image_base64, validate=True)
     except Exception as exc:
@@ -306,6 +306,10 @@ def search_by_image(payload: ImageSearchIn, request: Request) -> ImageSearchOut:
         raise HTTPException(status_code=400, detail="文件内容不是有效的 PNG")
     if mime == "image/jpeg" and not data.startswith(b"\xff\xd8\xff"):
         raise HTTPException(status_code=400, detail="文件内容不是有效的 JPEG")
+    if mime == "image/webp" and not (
+        len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    ):
+        raise HTTPException(status_code=400, detail="文件内容不是有效的 WebP")
 
     try:
         embedded = embed_image_bytes(

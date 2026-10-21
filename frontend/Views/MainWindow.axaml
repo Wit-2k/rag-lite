@@ -359,7 +359,7 @@
                                     IsEnabled="{Binding !IsAsking}"
                                     Padding="12,8"
                                     Margin="4,0"
-                                    ToolTip.Tip="选择 PNG / JPEG 图片进行以图搜图" />
+                                    ToolTip.Tip="选择 PNG / JPEG / WebP 图片进行以图搜图" />
                             <Button Grid.Column="2"
                                     Content="发送"
                                     Classes="accent"

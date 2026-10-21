@@ -241,7 +241,9 @@ class ChatSession:
             input_type="search_query",  # 查询侧要和入库侧的 search_document 区分开
         )
         hits = self.store.search(
-            embedded.vectors[0], top_k=self.retrieve_top_k, source_ids=self.source_ids
+            embedded.vectors[0],
+            top_k=self.retrieve_top_k,  # 默认 20 条候选
+            source_ids=self.source_ids,
         )
         if not hits:
             return []

@@ -929,7 +929,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>选择一张 PNG/JPEG 作为以图搜图的查询图。</summary>
+    /// <summary>选择一张 PNG/JPEG/WebP 作为以图搜图的查询图。</summary>
     [RelayCommand]
     private async Task AddImageAsync()
     {
@@ -943,9 +943,9 @@ public partial class MainViewModel : ObservableObject
             return;
         }
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is not (".png" or ".jpg" or ".jpeg"))
+        if (ext is not (".png" or ".jpg" or ".jpeg" or ".webp"))
         {
-            Status = "只支持 PNG 和 JPEG（jpg/jpeg）图片";
+            Status = "只支持 PNG、JPEG（jpg/jpeg）和 WebP 图片";
             return;
         }
         try
@@ -994,7 +994,12 @@ public partial class MainViewModel : ObservableObject
 
         var path = SelectedImagePath;
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        var mime = ext == ".png" ? "image/png" : "image/jpeg";
+        var mime = ext switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => "image/jpeg",
+        };
         Messages.Add(new MessageViewModel(isUser: true, content: $"以图搜图：{SelectedImageName}"));
         var answer = new MessageViewModel(isUser: false, content: "正在检索相似图片…");
         Messages.Add(answer);

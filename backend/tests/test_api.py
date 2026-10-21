@@ -422,21 +422,25 @@ def test_image_search_returns_image_matches(
         ),
     )
 
-    response = client.post(
-        "/api/search/image",
-        json={
-            "image_base64": base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode(),
-            "mime": "image/png",
-            "top_k": 5,
-        },
-    )
+    for mime, image_bytes in (
+        ("image/png", b"\x89PNG\r\n\x1a\nfake"),
+        ("image/webp", b"RIFF\x00\x00\x00\x00WEBPfake"),
+    ):
+        response = client.post(
+            "/api/search/image",
+            json={
+                "image_base64": base64.b64encode(image_bytes).decode(),
+                "mime": mime,
+                "top_k": 5,
+            },
+        )
 
-    assert response.status_code == 200
-    items = response.json()["items"]
-    assert len(items) == 1
-    assert items[0]["name"] == "图片集"
-    assert items[0]["image_path"].endswith("a.png")
-    assert items[0]["score"] == 1.0
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert len(items) == 1
+        assert items[0]["name"] == "图片集"
+        assert items[0]["image_path"].endswith("a.png")
+        assert items[0]["score"] == 1.0
 
 
 def test_chat_streams_sources_tokens_done(client: TestClient) -> None:
