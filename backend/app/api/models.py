@@ -121,7 +121,7 @@ class ImageSearchIn(BaseModel):
 
     image_base64: str = Field(min_length=1, max_length=20_000_000)
     mime: str = "image/jpeg"
-    top_k: int = Field(default=12, ge=1, le=50)
+    top_k: int = Field(default=4, ge=1, le=4)  # 以图搜图固定最多返回 4 张
 
 
 class ImageSearchItem(BaseModel):

@@ -80,7 +80,7 @@ public sealed class ApiClient : IDisposable
 
     /// <summary>以图搜图：把图片字节交给后端嵌入并检索，返回命中的图片。</summary>
     public async Task<ImageSearchResponseDto> SearchByImageAsync(
-        byte[] image, string mime, int topK = 12, CancellationToken cancellationToken = default)
+        byte[] image, string mime, int topK = 4, CancellationToken cancellationToken = default)
     {
         var payload = new ImageSearchRequestDto(Convert.ToBase64String(image), mime, topK);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/search/image")

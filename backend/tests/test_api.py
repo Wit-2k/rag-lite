@@ -431,7 +431,7 @@ def test_image_search_returns_image_matches(
             json={
                 "image_base64": base64.b64encode(image_bytes).decode(),
                 "mime": mime,
-                "top_k": 5,
+                "top_k": 4,
             },
         )
 
@@ -441,6 +441,16 @@ def test_image_search_returns_image_matches(
         assert items[0]["name"] == "图片集"
         assert items[0]["image_path"].endswith("a.png")
         assert items[0]["score"] == 1.0
+
+    too_many = client.post(
+        "/api/search/image",
+        json={
+            "image_base64": base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode(),
+            "mime": "image/png",
+            "top_k": 5,
+        },
+    )
+    assert too_many.status_code == 422, "以图搜图最多返回 4 张"
 
 
 def test_chat_streams_sources_tokens_done(client: TestClient) -> None:

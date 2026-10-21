@@ -75,7 +75,7 @@ RAGLITE_READY {"host": "127.0.0.1", "port": 17650}
 | POST | `/api/groups` | 新建分组（重名或保留名返回 409） |
 | PUT | `/api/groups/{id}` | 重命名分组 |
 | DELETE | `/api/groups/{id}` | 删除分组；还有会话在用时返回 409 并列出会话 |
-| POST | `/api/search/image` | 以图搜图：PNG/JPEG/WebP 的 base64 图片嵌入后只在纯图片块中检索，返回最多 12 条 |
+| POST | `/api/search/image` | 以图搜图：PNG/JPEG/WebP 的 base64 图片嵌入后只在纯图片块中检索，返回最多 4 条 |
 | POST | `/api/chat` | 提问，返回 SSE：`sources` → `token`… → `done`（或 `error`） |
 | POST | `/api/chat/clear` | 清空某个会话的对话上下文 |
 | GET | `/api/settings` | 当前生效配置（密钥只回固定圆点，不露任何片段；附 `.env` 路径与库维度） |
